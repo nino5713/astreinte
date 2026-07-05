@@ -7,6 +7,8 @@ Stack : Flask + SQLite. Conçu pour un déploiement gunicorn + nginx (VPS).
 """
 
 import os
+import io
+import calendar
 import sqlite3
 from datetime import datetime, timedelta, time as dtime
 from functools import wraps
@@ -14,9 +16,12 @@ from zoneinfo import ZoneInfo
 
 from flask import (
     Flask, g, request, session, redirect, url_for,
-    render_template, jsonify, abort, send_from_directory, Response
+    render_template, jsonify, abort, send_from_directory, Response, send_file
 )
 from werkzeug.security import generate_password_hash, check_password_hash
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 # --------------------------------------------------------------------------
 # Configuration
@@ -35,6 +40,12 @@ STATUTS_TECH = ["disponible", "en_depannage", "repos", "indisponible"]
 STATUTS_DEP = ["nouveau", "assigne", "en_cours", "termine", "annule"]
 PRIORITES = ["normale", "urgente", "critique"]
 ROLES = ["technicien", "dispatcher", "admin"]
+# Palette de couleurs distinctes attribuées aux techniciens.
+TECH_COULEURS = [
+    "#2563EB", "#16A34A", "#EA580C", "#DC2626", "#7C3AED", "#0891B2",
+    "#CA8A04", "#DB2777", "#059669", "#4F46E5", "#B45309", "#0D9488",
+    "#9333EA", "#65A30D", "#E11D48", "#0369A1", "#C026D3", "#15803D",
+]
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("ASTREINTE_SECRET", "change-me-en-production")
@@ -70,6 +81,7 @@ def init_db():
             role TEXT NOT NULL DEFAULT 'technicien',   -- 'technicien' | 'dispatcher'
             pin_hash TEXT NOT NULL,
             statut TEXT NOT NULL DEFAULT 'disponible',
+            couleur TEXT NOT NULL DEFAULT '#64748B',
             actif INTEGER NOT NULL DEFAULT 1
         );
 
@@ -122,6 +134,7 @@ def init_db():
     )
     _migration_astreintes_equipes(db)
     _migration_equipe_double(db)
+    _migration_tech_couleur(db)
     # Jeu de données initial (uniquement si vide)
     n = db.execute("SELECT COUNT(*) AS c FROM techniciens").fetchone()["c"]
     if n == 0:
@@ -175,6 +188,20 @@ def _migration_equipe_double(db):
     if "deux_colonnes" not in cols:
         db.execute("ALTER TABLE equipes ADD COLUMN deux_colonnes INTEGER NOT NULL DEFAULT 0")
         db.commit()
+
+
+def _migration_tech_couleur(db):
+    """Ajoute la colonne couleur aux techniciens si absente, et attribue une
+    couleur distincte de la palette aux techniciens existants."""
+    cols = [r[1] for r in db.execute("PRAGMA table_info(techniciens)").fetchall()]
+    if "couleur" in cols:
+        return
+    db.execute("ALTER TABLE techniciens ADD COLUMN couleur TEXT NOT NULL DEFAULT '#64748B'")
+    techs = db.execute("SELECT id FROM techniciens WHERE role = 'technicien' ORDER BY id").fetchall()
+    for i, t in enumerate(techs):
+        db.execute("UPDATE techniciens SET couleur = ? WHERE id = ?",
+                   (TECH_COULEURS[i % len(TECH_COULEURS)], t["id"]))
+    db.commit()
 
 
 def now_tz():
@@ -386,7 +413,7 @@ LIB_ROLE = {"technicien": "Technicien", "dispatcher": "Dispatcher", "admin": "Ad
 def api_admin_liste():
     db = get_db()
     rows = db.execute(
-        "SELECT id, nom, telephone, role, statut, actif FROM techniciens ORDER BY actif DESC, role DESC, nom"
+        "SELECT id, nom, telephone, role, statut, couleur, actif FROM techniciens ORDER BY actif DESC, role DESC, nom"
     ).fetchall()
     return jsonify([dict(r) for r in rows])
 
@@ -409,12 +436,31 @@ def api_admin_creer():
     existe = db.execute("SELECT 1 FROM techniciens WHERE nom = ? AND actif = 1", (nom,)).fetchone()
     if existe:
         return jsonify({"erreur": "Un utilisateur actif porte déjà ce nom."}), 400
+    couleur = data.get("couleur")
+    if not couleur:
+        # Couleur automatique : la prochaine de la palette peu utilisée.
+        n = db.execute("SELECT COUNT(*) AS c FROM techniciens WHERE role = 'technicien'").fetchone()["c"]
+        couleur = TECH_COULEURS[n % len(TECH_COULEURS)]
     cur = db.execute(
-        "INSERT INTO techniciens (nom, telephone, role, pin_hash, statut, actif) VALUES (?,?,?,?, 'disponible', 1)",
-        (nom, tel, role, generate_password_hash(pin)),
+        "INSERT INTO techniciens (nom, telephone, role, pin_hash, statut, couleur, actif) VALUES (?,?,?,?, 'disponible', ?, 1)",
+        (nom, tel, role, generate_password_hash(pin), couleur),
     )
     db.commit()
     return jsonify({"ok": True, "id": cur.lastrowid})
+
+
+@app.route("/api/admin/utilisateur/<int:uid>/couleur", methods=["POST"])
+@admin_requis
+def api_admin_couleur(uid):
+    db = get_db()
+    couleur = (request.get_json(force=True).get("couleur") or "").strip()
+    if not couleur:
+        return jsonify({"erreur": "Couleur requise."}), 400
+    if not db.execute("SELECT 1 FROM techniciens WHERE id = ?", (uid,)).fetchone():
+        abort(404)
+    db.execute("UPDATE techniciens SET couleur = ? WHERE id = ?", (couleur, uid))
+    db.commit()
+    return jsonify({"ok": True})
 
 
 @app.route("/api/admin/utilisateur/<int:uid>/pin", methods=["POST"])
@@ -546,20 +592,35 @@ def api_etat():
         "SELECT * FROM techniciens WHERE actif = 1 ORDER BY role DESC, nom"
     ).fetchall()
 
-    techs_out = []
-    for t in techs:
-        if t["role"] != "technicien":
-            continue
-        h = heures_technicien(db, t["id"])
-        techs_out.append({
-            "id": t["id"],
-            "nom": t["nom"],
-            "telephone": t["telephone"],
-            "statut": t["statut"],
-            "heures_jour": h["jour"],
-            "heures_semaine": h["semaine"],
-            "etat": etat_horaire(h["jour"], h["semaine"]),
+    # Gardes du jour : détermine qui est d'astreinte au moment présent.
+    aujourdhui = now_tz().date().isoformat()
+    gardes = gardes_resolues(db, aujourdhui, aujourdhui)
+    oncall = {}  # technicien_id -> liste de postes {equipe_nom, couleur_equipe, slot}
+    for g in gardes:
+        oncall.setdefault(g["technicien_id"], []).append({
+            "equipe_nom": g["equipe_nom"],
+            "couleur_equipe": g["equipe_couleur"],
+            "slot": g["slot"],
         })
+
+    def carte_tech(t):
+        h = heures_technicien(db, t["id"])
+        return {
+            "id": t["id"], "nom": t["nom"], "telephone": t["telephone"],
+            "statut": t["statut"], "couleur": t["couleur"],
+            "heures_jour": h["jour"], "heures_semaine": h["semaine"],
+            "etat": etat_horaire(h["jour"], h["semaine"]),
+            "gardes": oncall.get(t["id"], []),
+        }
+
+    # Tableau de bord : uniquement les techniciens d'astreinte aujourd'hui.
+    techs_out = [carte_tech(t) for t in techs
+                 if t["role"] == "technicien" and t["id"] in oncall]
+
+    # Carte personnelle (pour la vue technicien, qu'il soit d'astreinte ou non).
+    moi = None
+    if u["role"] == "technicien":
+        moi = carte_tech(u)
 
     deps = db.execute(
         """SELECT d.*, t.nom AS technicien_nom
@@ -574,8 +635,6 @@ def api_etat():
     ).fetchall()
 
     # Astreinte du jour : gardes regroupées par équipe (titulaire + back-up)
-    aujourdhui = now_tz().date().isoformat()
-    gardes = gardes_resolues(db, aujourdhui, aujourdhui)
     par_equipe = {}
     for g in gardes:
         e = par_equipe.setdefault(g["equipe_id"], {
@@ -589,6 +648,7 @@ def api_etat():
         "maintenant": iso(now_tz()),
         "utilisateur": {"id": u["id"], "nom": u["nom"], "role": u["role"]},
         "techniciens": techs_out,
+        "moi": moi,
         "depannages": [serialise_depannage(d) for d in deps],
         "astreinte_jour": astreinte,
         "plafonds": {
@@ -761,7 +821,7 @@ def gardes_resolues(db, debut, fin):
     rows = db.execute(
         """SELECT g.id, g.equipe_id, g.technicien_id, g.jour, g.slot,
                   e.nom AS equipe_nom, e.couleur AS equipe_couleur,
-                  t.nom AS technicien_nom
+                  t.nom AS technicien_nom, t.couleur AS technicien_couleur
            FROM gardes g
            JOIN equipes e ON g.equipe_id = e.id
            JOIN techniciens t ON g.technicien_id = t.id
@@ -838,11 +898,230 @@ def api_equipes_light():
 
 
 # --------------------------------------------------------------------------
-# API — équipes (réservé admin)
+# Import / export Excel du planning
 # --------------------------------------------------------------------------
+def _hex_xl(couleur):
+    """#RRGGBB -> FFRRGGBB pour openpyxl."""
+    c = (couleur or "#64748B").lstrip("#")
+    return "FF" + c.upper()
+
+
+def _colonnes_planning(db):
+    """Liste ordonnée des colonnes (equipe, slot) du planning."""
+    equipes = db.execute(
+        "SELECT id, nom, couleur, deux_colonnes FROM equipes WHERE actif = 1 ORDER BY nom"
+    ).fetchall()
+    cols = []
+    for e in equipes:
+        cols.append((e, "titulaire"))
+        if e["deux_colonnes"]:
+            cols.append((e, "backup"))
+    return equipes, cols
+
+
+@app.route("/api/planning/export")
+@admin_requis
+def api_export_planning():
+    db = get_db()
+    mois = request.args.get("mois") or now_tz().strftime("%Y-%m")
+    an, mo = int(mois[:4]), int(mois[5:7])
+    nbj = calendar.monthrange(an, mo)[1]
+    debut = f"{an:04d}-{mo:02d}-01"
+    fin = f"{an:04d}-{mo:02d}-{nbj:02d}"
+
+    equipes, cols = _colonnes_planning(db)
+    gardes = gardes_resolues(db, debut, fin)
+    idx = {(g["equipe_id"], g["jour"], g["slot"]): (g["technicien_nom"], g["technicien_couleur"]) for g in gardes}
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Planning"
+    arial = "Arial"
+    bord = Border(*[Side(style="thin", color="FFD0D5DD")] * 4)
+    centre = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    mois_noms = ["", "janvier", "février", "mars", "avril", "mai", "juin",
+                 "juillet", "août", "septembre", "octobre", "novembre", "décembre"]
+    mois_fr = f"{mois_noms[mo]} {an}"
+    ncols = 2 + len(cols)
+    ws.cell(1, 1, f"Planning des astreintes — {mois_fr}")
+    ws.cell(1, 1).font = Font(name=arial, bold=True, size=14, color="FF1E3A8A")
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ncols)
+
+    # Ligne 2/3 : Date, Jour (fusion verticale)
+    for r0, lib in ((1, "Date"), (2, "Jour")):
+        pass
+    ws.cell(2, 1, "Date"); ws.merge_cells("A2:A3")
+    ws.cell(2, 2, "Jour"); ws.merge_cells("B2:B3")
+
+    # En-têtes équipes + sous-postes
+    c = 3
+    entete_fill = PatternFill("solid", fgColor="FF1E3A8A")
+    i = 0
+    while i < len(cols):
+        e, slot = cols[i]
+        col_lettre = get_column_letter(c)
+        if e["deux_colonnes"]:
+            ws.cell(2, c, e["nom"])
+            ws.merge_cells(start_row=2, start_column=c, end_row=2, end_column=c + 1)
+            ws.cell(3, c, "Titulaire")
+            ws.cell(3, c + 1, "Back-up")
+            for cc in (c, c + 1):
+                ws.cell(2, cc).fill = PatternFill("solid", fgColor=_hex_xl(e["couleur"]))
+                ws.cell(2, cc).font = Font(name=arial, bold=True, color="FFFFFFFF")
+                ws.cell(3, cc).font = Font(name=arial, bold=True, size=9, color="FF475569")
+                ws.cell(3, cc).alignment = centre
+            c += 2
+            i += 2
+        else:
+            ws.cell(2, c, e["nom"])
+            ws.merge_cells(start_row=2, start_column=c, end_row=3, end_column=c)
+            ws.cell(2, c).fill = PatternFill("solid", fgColor=_hex_xl(e["couleur"]))
+            ws.cell(2, c).font = Font(name=arial, bold=True, color="FFFFFFFF")
+            c += 1
+            i += 1
+
+    for cell in (ws.cell(2, 1), ws.cell(2, 2)):
+        cell.fill = entete_fill
+        cell.font = Font(name=arial, bold=True, color="FFFFFFFF")
+        cell.alignment = centre
+
+    for cc in range(3, ncols + 1):
+        ws.cell(2, cc).alignment = centre
+
+    # Lignes de jours
+    jours_fr = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
+    for j in range(1, nbj + 1):
+        d = datetime(an, mo, j).date()
+        r = 3 + j
+        ws.cell(r, 1, d.isoformat())
+        ws.cell(r, 1).font = Font(name=arial, bold=True)
+        ws.cell(r, 2, jours_fr[d.weekday()])
+        we = d.weekday() >= 5
+        for cc in (1, 2):
+            ws.cell(r, cc).alignment = centre
+            if we:
+                ws.cell(r, cc).fill = PatternFill("solid", fgColor="FFF1F5F9")
+        cc = 3
+        for (e, slot) in cols:
+            val = idx.get((e["id"], d.isoformat(), slot))
+            cell = ws.cell(r, cc)
+            if val:
+                cell.value = val[0]
+                cell.fill = PatternFill("solid", fgColor=_hex_xl(val[1]))
+                cell.font = Font(name=arial, bold=True, color="FFFFFFFF")
+            elif we:
+                cell.fill = PatternFill("solid", fgColor="FFF1F5F9")
+            cell.alignment = centre
+            cc += 1
+
+    # Bordures + largeurs
+    for row in ws.iter_rows(min_row=2, max_row=3 + nbj, min_col=1, max_col=ncols):
+        for cell in row:
+            cell.border = bord
+            if not cell.font or cell.font.name != arial:
+                cell.font = Font(name=arial)
+    ws.column_dimensions["A"].width = 12
+    ws.column_dimensions["B"].width = 11
+    for cc in range(3, ncols + 1):
+        ws.column_dimensions[get_column_letter(cc)].width = 16
+    ws.freeze_panes = "C4"
+    ws.sheet_view.showGridLines = False
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    nom_fichier = f"planning_astreinte_{mois}.xlsx"
+    return send_file(
+        buf, as_attachment=True, download_name=nom_fichier,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@app.route("/api/planning/import", methods=["POST"])
+@admin_requis
+def api_import_planning():
+    db = get_db()
+    f = request.files.get("fichier")
+    if not f:
+        return jsonify({"erreur": "Aucun fichier reçu."}), 400
+    try:
+        wb = load_workbook(f, data_only=True)
+    except Exception:
+        return jsonify({"erreur": "Fichier Excel illisible."}), 400
+    ws = wb.active
+
+    # Repère la ligne d'en-tête (cellule 'Date' en colonne A)
+    ligne_equipe = None
+    for r in range(1, 8):
+        v = ws.cell(r, 1).value
+        if v and str(v).strip().lower() == "date":
+            ligne_equipe = r
+            break
+    if not ligne_equipe:
+        return jsonify({"erreur": "Format non reconnu : en-tête 'Date' introuvable."}), 400
+    ligne_slot = ligne_equipe + 1
+    ligne_data = ligne_equipe + 2
+
+    # Cartographie des colonnes -> (nom_equipe, slot)
+    equipes = {e["nom"].strip().lower(): e for e in
+               db.execute("SELECT id, nom FROM equipes WHERE actif = 1").fetchall()}
+    colmap = {}
+    equipe_courante = None
+    for c in range(3, ws.max_column + 1):
+        v = ws.cell(ligne_equipe, c).value
+        if v and str(v).strip():
+            equipe_courante = str(v).strip()
+        slot_lab = ws.cell(ligne_slot, c).value
+        slot = "backup" if (slot_lab and "back" in str(slot_lab).lower()) else "titulaire"
+        if equipe_courante:
+            colmap[c] = (equipe_courante, slot)
+
+    techs = {t["nom"].strip().lower(): t for t in
+             db.execute("SELECT id, nom FROM techniciens WHERE actif = 1").fetchall()}
+
+    importes, ignores = 0, []
+    for r in range(ligne_data, ws.max_row + 1):
+        dval = ws.cell(r, 1).value
+        if dval is None:
+            continue
+        if isinstance(dval, datetime):
+            jour = dval.date().isoformat()
+        else:
+            try:
+                jour = datetime.strptime(str(dval).strip()[:10], "%Y-%m-%d").date().isoformat()
+            except ValueError:
+                continue
+        for c, (enom, slot) in colmap.items():
+            e = equipes.get(enom.strip().lower())
+            if not e:
+                continue
+            nom = ws.cell(r, c).value
+            nom = str(nom).strip() if nom is not None else ""
+            if not nom:
+                db.execute("DELETE FROM gardes WHERE equipe_id=? AND jour=? AND slot=?", (e["id"], jour, slot))
+                continue
+            t = techs.get(nom.lower())
+            if not t:
+                ignores.append(f"{nom} ({jour}) : technicien inconnu")
+                continue
+            membre = db.execute("SELECT 1 FROM equipe_membres WHERE equipe_id=? AND technicien_id=?",
+                                (e["id"], t["id"])).fetchone()
+            if not membre:
+                ignores.append(f"{nom} ({jour}) : pas membre de {enom}")
+                continue
+            db.execute(
+                """INSERT INTO gardes (equipe_id, technicien_id, jour, slot) VALUES (?,?,?,?)
+                   ON CONFLICT(equipe_id, jour, slot) DO UPDATE SET technicien_id = excluded.technicien_id""",
+                (e["id"], t["id"], jour, slot),
+            )
+            importes += 1
+    db.commit()
+    return jsonify({"ok": True, "importes": importes, "ignores": ignores[:20],
+                    "nb_ignores": len(ignores)})
 def _membres_equipe(db, eid):
     rows = db.execute(
-        """SELECT t.id, t.nom FROM equipe_membres m
+        """SELECT t.id, t.nom, t.couleur FROM equipe_membres m
            JOIN techniciens t ON m.technicien_id = t.id
            WHERE m.equipe_id = ? ORDER BY t.nom""",
         (eid,),

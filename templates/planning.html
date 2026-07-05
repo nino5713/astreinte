@@ -8,6 +8,13 @@
     <div class="titre" id="mois-titre" style="text-transform:capitalize">…</div>
     <button class="btn" id="mois-suiv">›</button>
     <button class="btn fantome" id="mois-auj">Ce mois-ci</button>
+    {% if utilisateur['role'] == 'admin' %}
+    <div class="excel-actions">
+      <button class="btn" id="btn-export">↓ Exporter Excel</button>
+      <button class="btn" id="btn-import">↑ Importer Excel</button>
+      <input type="file" id="fichier-import" accept=".xlsx" style="display:none">
+    </div>
+    {% endif %}
   </div>
 
   <div id="planning-info"></div>

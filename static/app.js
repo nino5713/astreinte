@@ -124,14 +124,21 @@ function rendreBandeau(etat) {
 function rendreTechniciens(etat) {
   const g = document.getElementById("grille-tech");
   document.getElementById("compte-tech").textContent = etat.techniciens.length;
+  if (!etat.techniciens.length) {
+    g.innerHTML = `<div class="vide">Personne n'est d'astreinte en ce moment. Composez le planning dans l'onglet Planning.</div>`;
+    return;
+  }
   g.innerHTML = etat.techniciens.map((t) => {
     const niv = t.etat;
-    return `<div class="carte-tech st-${t.statut}">
+    const postes = (t.gardes || []).map((x) =>
+      `<span class="poste-tag" style="border-color:${x.couleur_equipe};color:${x.couleur_equipe}">${ech(x.equipe_nom)} · ${x.slot === "backup" ? "Back-up" : "Titulaire"}</span>`).join("");
+    return `<div class="carte-tech st-${t.statut}" style="border-left-color:${t.couleur}">
       <div class="tete">
-        <div><div class="nom">${ech(t.nom)}</div>
+        <div><div class="nom"><span class="pt-dot" style="background:${t.couleur}"></span>${ech(t.nom)}</div>
         <div class="tel">${ech(t.telephone || "")}</div></div>
         <span class="pastille ${t.statut}">${LIB_STATUT[t.statut]}</span>
       </div>
+      ${postes ? `<div class="postes">${postes}</div>` : ""}
       <div class="jauges">
         ${jaugeHTML("Jour", t.heures_jour, etat.plafonds.max_jour, jJour(t, etat.plafonds))}
         ${jaugeHTML("Semaine", t.heures_semaine, etat.plafonds.max_semaine, jSem(t, etat.plafonds))}
@@ -272,8 +279,7 @@ async function rafraichirTech() {
   try {
     const etat = await api("/api/etat");
     _etat = etat;
-    const moi = etat.techniciens.find((t) => t.id === window.MOI);
-    if (moi) rendreMonStatut(moi, etat.plafonds);
+    if (etat.moi) rendreMonStatut(etat.moi, etat.plafonds);
     rendreMesDepannages(etat);
   } catch (e) { console.error(e); }
 }
@@ -381,7 +387,43 @@ async function demarrerPlanning() {
   document.getElementById("mois-suiv").addEventListener("click", () => { _moisCourant = new Date(_moisCourant.getFullYear(), _moisCourant.getMonth() + 1, 1); rendrePlanning(); });
   document.getElementById("mois-auj").addEventListener("click", () => { _moisCourant = premierDuMois(new Date()); rendrePlanning(); });
 
+  const bx = document.getElementById("btn-export");
+  if (bx) bx.addEventListener("click", exporterPlanning);
+  const bi = document.getElementById("btn-import");
+  const fi = document.getElementById("fichier-import");
+  if (bi && fi) {
+    bi.addEventListener("click", () => fi.click());
+    fi.addEventListener("change", importerPlanning);
+  }
+
   rendrePlanning();
+}
+
+function moisCode() {
+  return `${_moisCourant.getFullYear()}-${String(_moisCourant.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function exporterPlanning() {
+  window.location.href = `/api/planning/export?mois=${moisCode()}`;
+}
+
+async function importerPlanning(ev) {
+  const f = ev.target.files[0];
+  if (!f) return;
+  const fd = new FormData();
+  fd.append("fichier", f);
+  try {
+    const r = await fetch("/api/planning/import", { method: "POST", body: fd });
+    const d = await r.json();
+    if (!r.ok) { alert(d.erreur || "Import impossible."); }
+    else {
+      let msg = `${d.importes} garde(s) importée(s).`;
+      if (d.nb_ignores) msg += `\n${d.nb_ignores} ligne(s) ignorée(s) :\n- ` + d.ignores.join("\n- ");
+      alert(msg);
+      rendrePlanning();
+    }
+  } catch (e) { alert("Import impossible : " + e.message); }
+  ev.target.value = "";
 }
 
 async function rendrePlanning() {
@@ -395,9 +437,9 @@ async function rendrePlanning() {
   let gardes = [];
   try { gardes = await api(`/api/gardes?debut=${debut}&fin=${fin}`); } catch (e) {}
 
-  // index : "equipeId|jour|slot" -> nom du technicien
+  // index : "equipeId|jour|slot" -> { nom, couleur } du technicien
   const idx = {};
-  gardes.forEach((g) => { idx[g.equipe_id + "|" + g.jour + "|" + g.slot] = g.technicien_nom; });
+  gardes.forEach((g) => { idx[g.equipe_id + "|" + g.jour + "|" + g.slot] = { nom: g.technicien_nom, couleur: g.technicien_couleur }; });
 
   const estAdmin = window.MON_ROLE === "admin";
   const equipes = _equipesPlanning;
@@ -439,9 +481,9 @@ async function rendrePlanning() {
     equipes.forEach((e) => {
       const slots = e.deux_colonnes ? ["titulaire", "backup"] : ["titulaire"];
       slots.forEach((slot) => {
-        const nom = idx[e.id + "|" + ds + "|" + slot];
-        const rempli = nom
-          ? `<span class="pt-nom" style="background:${e.couleur}">${ech(nom)}</span>`
+        const g = idx[e.id + "|" + ds + "|" + slot];
+        const rempli = g
+          ? `<span class="pt-nom" style="background:${g.couleur}">${ech(g.nom)}</span>`
           : (estAdmin ? `<span class="pt-vide">+</span>` : "");
         const clic = estAdmin ? `onclick="ouvrirGarde(${e.id},'${ds}','${slot}')"` : "";
         const cls = "cell" + (estAdmin ? " editable" : "") + (slot === "backup" ? " backup" : "");
@@ -471,7 +513,7 @@ function ouvrirGarde(eid, jour, slot) {
     liste.innerHTML = `<div class="vide">Cette équipe n'a aucun technicien. Ajoutez-en dans l'onglet Administration.</div>`;
   } else {
     liste.innerHTML = eq.membres.map((m) =>
-      `<button class="btn choix-tech" onclick="definirGarde(${m.id})">${ech(m.nom)}</button>`).join("");
+      `<button class="btn choix-tech" onclick="definirGarde(${m.id})"><span class="pt-dot" style="background:${m.couleur || '#64748B'}"></span>${ech(m.nom)}</button>`).join("");
   }
   ouvrir("modale-garde");
 }
@@ -505,12 +547,22 @@ function demarrerAdmin() {
   document.getElementById("btn-nouvel-user").addEventListener("click", ouvrirNouvelUser);
   document.getElementById("btn-creer-user").addEventListener("click", creerUser);
   document.getElementById("btn-confirmer-pin").addEventListener("click", confirmerPin);
+  document.getElementById("btn-confirmer-couleur").addEventListener("click", confirmerCouleur);
   document.querySelectorAll('#u-role input').forEach((r) => r.addEventListener("change", majAideRole));
   document.getElementById("btn-nouvelle-equipe").addEventListener("click", ouvrirNouvelleEquipe);
   document.getElementById("btn-enregistrer-equipe").addEventListener("click", enregistrerEquipe);
   chargerUsers();
   chargerEquipes();
 }
+
+const COULEURS_TECH = [
+  "#2563EB", "#16A34A", "#EA580C", "#DC2626", "#7C3AED", "#0891B2",
+  "#CA8A04", "#DB2777", "#059669", "#4F46E5", "#B45309", "#0D9488",
+  "#9333EA", "#65A30D", "#E11D48", "#0369A1", "#C026D3", "#15803D",
+];
+let _couleurUserCible = null;
+let _couleurUserChoix = COULEURS_TECH[0];
+let _couleurCreation = COULEURS_TECH[0];
 
 const COULEURS_EQUIPE = ["#1E3A8A", "#16A34A", "#EA580C", "#DC2626", "#7C3AED", "#0891B2", "#CA8A04", "#DB2777"];
 let _equipeEdit = null;      // id en cours d'édition, ou null pour création
@@ -617,15 +669,20 @@ async function chargerUsers() {
   const l = document.getElementById("liste-users");
   l.innerHTML = users.map((u) => {
     const inactif = u.actif ? "" : " inactif";
+    const estTech = u.role === "technicien";
+    const dot = estTech ? `<span class="pt-dot" style="background:${u.couleur || '#64748B'}"></span>` : "";
+    const btnCouleur = estTech
+      ? `<button class="btn" onclick="ouvrirCouleur(${u.id}, '${ech(u.nom).replace(/'/g, "\\'")}', '${u.couleur || '#64748B'}')">Couleur</button>` : "";
     return `<div class="carte-user${inactif}">
       <div class="u-ident">
-        <div class="u-nom">${ech(u.nom)}${u.actif ? "" : ' <span class="u-tag-inactif">désactivé</span>'}</div>
+        <div class="u-nom">${dot}${ech(u.nom)}${u.actif ? "" : ' <span class="u-tag-inactif">désactivé</span>'}</div>
         <div class="u-meta">
           <span class="u-role r-${u.role}">${LIB_ROLE[u.role] || u.role}</span>
           ${u.telephone ? `<span class="u-tel">${ech(u.telephone)}</span>` : ""}
         </div>
       </div>
       <div class="u-actions">
+        ${btnCouleur}
         <button class="btn" onclick="ouvrirPin(${u.id}, '${ech(u.nom).replace(/'/g, "\\'")}')">PIN</button>
         ${u.actif
           ? `<button class="btn" onclick="basculerActif(${u.id}, false)">Désactiver</button>`
@@ -634,6 +691,37 @@ async function chargerUsers() {
       </div>
     </div>`;
   }).join("");
+}
+
+function paletteHTML(containerId, couleurActive, cb) {
+  document.getElementById(containerId).innerHTML = COULEURS_TECH.map((c) =>
+    `<button type="button" class="pastille-couleur ${c === couleurActive ? "actif" : ""}"
+      style="background:${c}" data-couleur="${c}" onclick="${cb}('${c}')"></button>`).join("");
+}
+
+function choisirCouleurCreation(c) {
+  _couleurCreation = c;
+  document.querySelectorAll("#u-couleurs .pastille-couleur").forEach((b) => b.classList.toggle("actif", b.dataset.couleur === c));
+}
+
+function ouvrirCouleur(id, nom, couleur) {
+  _couleurUserCible = id;
+  _couleurUserChoix = couleur;
+  document.getElementById("couleur-titre").textContent = "Couleur — " + nom;
+  paletteHTML("c-couleurs", couleur, "choisirCouleurUser");
+  ouvrir("modale-couleur");
+}
+
+function choisirCouleurUser(c) {
+  _couleurUserChoix = c;
+  document.querySelectorAll("#c-couleurs .pastille-couleur").forEach((b) => b.classList.toggle("actif", b.dataset.couleur === c));
+}
+
+async function confirmerCouleur() {
+  try {
+    await api(`/api/admin/utilisateur/${_couleurUserCible}/couleur`, "POST", { couleur: _couleurUserChoix });
+    fermer("modale-couleur"); chargerUsers();
+  } catch (e) { alert(e.message); }
 }
 
 function majAideRole() {
@@ -651,6 +739,8 @@ function ouvrirNouvelUser() {
   document.getElementById("u-tel").value = "";
   document.getElementById("u-pin").value = "";
   document.querySelector('#u-role input[value="technicien"]').checked = true;
+  _couleurCreation = COULEURS_TECH[0];
+  paletteHTML("u-couleurs", _couleurCreation, "choisirCouleurCreation");
   majAideRole();
   ouvrir("modale-user");
   document.getElementById("u-nom").focus();
@@ -662,6 +752,7 @@ async function creerUser() {
     telephone: document.getElementById("u-tel").value.trim(),
     role: document.querySelector('#u-role input:checked').value,
     pin: document.getElementById("u-pin").value.trim(),
+    couleur: _couleurCreation,
   };
   if (!corps.nom) { document.getElementById("u-nom").focus(); return; }
   if (corps.pin.length < 4) { alert("Le code PIN doit faire au moins 4 chiffres."); return; }

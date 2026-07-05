@@ -77,6 +77,10 @@
         <label>Code PIN (min. 4 chiffres)</label>
         <input type="text" id="u-pin" inputmode="numeric" autocomplete="off" placeholder="Ex. 4827">
       </div>
+      <div class="champ" id="u-couleur-champ">
+        <label>Couleur (pour le planning)</label>
+        <div class="couleurs" id="u-couleurs"></div>
+      </div>
       <p class="aide-role" id="u-aide"></p>
     </div>
     <div class="pied">
@@ -99,6 +103,20 @@
     <div class="pied">
       <button class="btn fantome" data-fermer>Annuler</button>
       <button class="btn primaire" id="btn-confirmer-pin">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modale : couleur d'un technicien -->
+<div class="overlay" id="modale-couleur">
+  <div class="modale">
+    <div class="tete"><h3 id="couleur-titre">Couleur du technicien</h3><button class="fermer" data-fermer>×</button></div>
+    <div class="corps">
+      <div class="couleurs" id="c-couleurs"></div>
+    </div>
+    <div class="pied">
+      <button class="btn fantome" data-fermer>Annuler</button>
+      <button class="btn primaire" id="btn-confirmer-couleur">Enregistrer</button>
     </div>
   </div>
 </div>
