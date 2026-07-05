@@ -1,0 +1,385 @@
+/* ===================================================================
+   SOCOM · Astreinte — feuille de style
+   Palette ancrée sur le bleu SOCOM. Aucune dépendance externe.
+=================================================================== */
+:root {
+  --socom:        #1E3A8A;
+  --socom-clair:  #2E4FB0;
+  --socom-fonce:  #142657;
+  --encre:        #0F172A;
+  --ardoise:      #475569;
+  --ardoise-clair:#94A3B8;
+  --fond:         #F1F4F9;
+  --carte:        #FFFFFF;
+  --bordure:      #E2E8F0;
+
+  /* statuts techniciens / dépannages */
+  --dispo:        #16A34A;
+  --dispo-bg:     #DCFCE7;
+  --depann:       #EA580C;
+  --depann-bg:    #FFEDD5;
+  --repos:        #0284C7;
+  --repos-bg:     #E0F2FE;
+  --indispo:      #64748B;
+  --indispo-bg:   #F1F5F9;
+
+  --critique:     #DC2626;
+  --urgente:      #EA580C;
+  --normale:      #0284C7;
+
+  --ok:           #16A34A;
+  --attention:    #D97706;
+  --depasse:      #DC2626;
+
+  --ombre: 0 1px 2px rgba(15,23,42,.06), 0 4px 12px rgba(15,23,42,.05);
+  --ombre-forte: 0 8px 30px rgba(15,23,42,.16);
+  --r: 12px;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: "SF Mono", "Roboto Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  font-family: var(--sans);
+  color: var(--encre);
+  background: var(--fond);
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; }
+
+/* ---------- Barre supérieure ---------- */
+.topbar {
+  position: sticky; top: 0; z-index: 50;
+  display: flex; align-items: center; gap: 16px;
+  padding: 0 20px; height: 60px;
+  background: var(--socom);
+  color: #fff;
+  box-shadow: var(--ombre);
+}
+.topbar .marque {
+  display: flex; align-items: baseline; gap: 8px;
+  font-weight: 700; letter-spacing: .04em; font-size: 18px;
+}
+.topbar .marque small {
+  font-weight: 500; letter-spacing: .12em; text-transform: uppercase;
+  font-size: 11px; color: #C7D2FE;
+}
+.topbar nav { display: flex; gap: 4px; margin-left: 8px; }
+.topbar nav a {
+  padding: 8px 14px; border-radius: 8px; text-decoration: none;
+  font-size: 14px; font-weight: 500; color: #DBEAFE; transition: background .15s;
+}
+.topbar nav a:hover { background: rgba(255,255,255,.12); }
+.topbar nav a.actif { background: rgba(255,255,255,.18); color: #fff; }
+.topbar .droite { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+.topbar .horloge { font-variant-numeric: tabular-nums; font-size: 15px; font-weight: 600; }
+.topbar .qui { font-size: 13px; color: #C7D2FE; }
+.topbar .deconnexion {
+  color: #C7D2FE; text-decoration: none; font-size: 13px; padding: 6px 10px;
+  border: 1px solid rgba(255,255,255,.25); border-radius: 8px;
+}
+.topbar .deconnexion:hover { background: rgba(255,255,255,.12); color: #fff; }
+.btn-installer {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(255,255,255,.16); color: #fff; border: 1px solid rgba(255,255,255,.3);
+  font: inherit; font-size: 13px; font-weight: 600; padding: 6px 12px; border-radius: 8px; cursor: pointer;
+}
+.btn-installer:hover { background: rgba(255,255,255,.26); }
+
+.contenu { max-width: 1240px; margin: 0 auto; padding: 22px 20px 60px; }
+
+/* ---------- Titres de section ---------- */
+.section-titre {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 13px; font-weight: 700; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--ardoise);
+  margin: 26px 0 12px;
+}
+.section-titre .compte {
+  font-size: 12px; background: var(--bordure); color: var(--ardoise);
+  padding: 1px 9px; border-radius: 999px; letter-spacing: 0;
+}
+.section-titre .barre { flex: 1; height: 1px; background: var(--bordure); }
+
+/* ---------- Grille des techniciens (tableau de bord) ---------- */
+.grille-tech {
+  display: grid; gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+}
+.carte-tech {
+  background: var(--carte); border: 1px solid var(--bordure);
+  border-radius: var(--r); padding: 16px; box-shadow: var(--ombre);
+  border-left: 4px solid var(--indispo);
+  transition: transform .12s, box-shadow .12s;
+}
+.carte-tech.st-disponible   { border-left-color: var(--dispo); }
+.carte-tech.st-en_depannage { border-left-color: var(--depann); }
+.carte-tech.st-repos        { border-left-color: var(--repos); }
+.carte-tech.st-indisponible { border-left-color: var(--indispo); }
+.carte-tech .tete { display: flex; align-items: flex-start; justify-content: space-between; }
+.carte-tech .nom { font-weight: 700; font-size: 16px; }
+.carte-tech .tel { font-size: 12.5px; color: var(--ardoise); font-variant-numeric: tabular-nums; }
+
+.pastille {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px;
+  white-space: nowrap;
+}
+.pastille::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.pastille.disponible   { color: var(--dispo);   background: var(--dispo-bg); }
+.pastille.en_depannage { color: var(--depann);  background: var(--depann-bg); }
+.pastille.repos        { color: var(--repos);   background: var(--repos-bg); }
+.pastille.indisponible { color: var(--indispo); background: var(--indispo-bg); }
+
+/* ---------- Jauges horaires ---------- */
+.jauges { margin-top: 14px; display: grid; gap: 10px; }
+.jauge .ligne { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; }
+.jauge .ligne .lab { color: var(--ardoise); font-weight: 600; letter-spacing: .02em; }
+.jauge .ligne .val { font-variant-numeric: tabular-nums; font-weight: 700; }
+.jauge .piste { height: 8px; border-radius: 999px; background: var(--bordure); overflow: hidden; }
+.jauge .rempli { height: 100%; border-radius: 999px; transition: width .4s ease; background: var(--ok); }
+.jauge.attention .rempli { background: var(--attention); }
+.jauge.depasse .rempli { background: var(--depasse); }
+.jauge.depasse .val { color: var(--depasse); }
+.jauge.attention .val { color: var(--attention); }
+
+.badge-etat { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px; letter-spacing: .03em; }
+.badge-etat.ok        { color: var(--ok);        background: var(--dispo-bg); }
+.badge-etat.attention { color: var(--attention); background: #FEF3C7; }
+.badge-etat.depasse   { color: var(--depasse);   background: #FEE2E2; }
+
+/* ---------- Dépannages ---------- */
+.liste-dep { display: grid; gap: 10px; }
+.carte-dep {
+  background: var(--carte); border: 1px solid var(--bordure);
+  border-radius: var(--r); padding: 14px 16px; box-shadow: var(--ombre);
+  display: grid; grid-template-columns: 4px 1fr auto; gap: 14px; align-items: center;
+}
+.carte-dep .bande { align-self: stretch; border-radius: 4px; background: var(--normale); }
+.carte-dep.pri-critique .bande { background: var(--critique); }
+.carte-dep.pri-urgente  .bande { background: var(--urgente); }
+.carte-dep.pri-normale  .bande { background: var(--normale); }
+.carte-dep .infos .haut { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.carte-dep .client { font-weight: 700; font-size: 15.5px; }
+.carte-dep .lieu { color: var(--ardoise); font-size: 13px; }
+.carte-dep .desc { font-size: 13.5px; color: var(--encre); margin-top: 3px; }
+.carte-dep .meta { font-size: 12px; color: var(--ardoise-clair); margin-top: 5px; display: flex; gap: 12px; flex-wrap: wrap; }
+.carte-dep .meta b { color: var(--ardoise); font-weight: 600; }
+.carte-dep .actions { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+
+.tag { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px; text-transform: uppercase; letter-spacing: .04em; }
+.tag.pri-critique { color: var(--critique); background: #FEE2E2; }
+.tag.pri-urgente  { color: var(--urgente); background: var(--depann-bg); }
+.tag.pri-normale  { color: var(--normale); background: var(--repos-bg); }
+.tag.st-nouveau   { color: var(--ardoise); background: var(--indispo-bg); }
+.tag.st-assigne   { color: var(--repos); background: var(--repos-bg); }
+.tag.st-en_cours  { color: var(--depann); background: var(--depann-bg); }
+
+/* ---------- Boutons ---------- */
+.btn {
+  font-family: inherit; font-size: 14px; font-weight: 600;
+  border: 1px solid var(--bordure); background: var(--carte); color: var(--encre);
+  padding: 8px 14px; border-radius: 9px; cursor: pointer;
+  transition: background .12s, border-color .12s, transform .05s;
+  white-space: nowrap;
+}
+.btn:hover { background: #F8FAFC; }
+.btn:active { transform: translateY(1px); }
+.btn.primaire { background: var(--socom); border-color: var(--socom); color: #fff; }
+.btn.primaire:hover { background: var(--socom-clair); }
+.btn.succes { background: var(--dispo); border-color: var(--dispo); color: #fff; }
+.btn.succes:hover { filter: brightness(.95); }
+.btn.danger { background: #fff; border-color: #FCA5A5; color: var(--depasse); }
+.btn.danger:hover { background: #FEF2F2; }
+.btn.fantome { background: transparent; border-color: transparent; color: var(--ardoise); }
+.btn.fantome:hover { background: var(--indispo-bg); }
+.btn.grand { font-size: 17px; padding: 15px 20px; width: 100%; border-radius: 12px; }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn select { font: inherit; border: none; background: transparent; }
+
+/* ---------- Vide ---------- */
+.vide { color: var(--ardoise); font-size: 14px; padding: 22px; text-align: center;
+        background: var(--carte); border: 1px dashed var(--bordure); border-radius: var(--r); }
+
+/* ---------- Bandeau astreinte du jour ---------- */
+.bandeau-astreinte {
+  background: linear-gradient(120deg, var(--socom), var(--socom-fonce));
+  color: #fff; border-radius: var(--r); padding: 16px 20px;
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  box-shadow: var(--ombre);
+}
+.bandeau-astreinte .etiq { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: #C7D2FE; font-weight: 700; }
+.bandeau-astreinte .noms { font-size: 17px; font-weight: 700; }
+.bandeau-astreinte .puce {
+  display: inline-block; background: rgba(255,255,255,.16); padding: 4px 12px;
+  border-radius: 999px; margin-right: 8px; font-size: 15px;
+}
+
+/* ---------- Modale ---------- */
+.overlay {
+  position: fixed; inset: 0; background: rgba(15,23,42,.5);
+  display: none; align-items: center; justify-content: center; z-index: 100; padding: 16px;
+}
+.overlay.ouvert { display: flex; }
+.modale {
+  background: var(--carte); border-radius: 16px; width: 100%; max-width: 480px;
+  box-shadow: var(--ombre-forte); overflow: hidden;
+}
+.modale .tete { padding: 18px 20px; border-bottom: 1px solid var(--bordure); display: flex; justify-content: space-between; align-items: center; }
+.modale .tete h3 { margin: 0; font-size: 17px; }
+.modale .corps { padding: 20px; display: grid; gap: 14px; }
+.modale .pied { padding: 16px 20px; border-top: 1px solid var(--bordure); display: flex; justify-content: flex-end; gap: 10px; }
+.champ { display: grid; gap: 6px; }
+.champ label { font-size: 12.5px; font-weight: 600; color: var(--ardoise); }
+.champ input, .champ select, .champ textarea {
+  font-family: inherit; font-size: 14.5px; padding: 10px 12px;
+  border: 1px solid var(--bordure); border-radius: 9px; background: #fff; color: var(--encre);
+}
+.champ input:focus, .champ select:focus, .champ textarea:focus {
+  outline: none; border-color: var(--socom); box-shadow: 0 0 0 3px rgba(30,58,138,.12);
+}
+.champ textarea { resize: vertical; min-height: 64px; }
+.champ .segment { display: flex; gap: 8px; }
+.champ .segment label {
+  flex: 1; text-align: center; padding: 9px; border: 1px solid var(--bordure);
+  border-radius: 9px; cursor: pointer; font-weight: 600; color: var(--ardoise);
+}
+.champ .segment input { display: none; }
+.champ .segment input:checked + span { color: var(--socom); }
+.champ .segment label:has(input:checked) { border-color: var(--socom); background: rgba(30,58,138,.06); }
+
+.fermer { background: none; border: none; font-size: 22px; color: var(--ardoise); cursor: pointer; line-height: 1; }
+
+/* ---------- Barre d'action flottante ---------- */
+.action-flottante {
+  position: fixed; right: 22px; bottom: 22px; z-index: 40;
+  display: flex; align-items: center; gap: 8px;
+  background: var(--socom); color: #fff; border: none; cursor: pointer;
+  padding: 14px 20px; border-radius: 999px; font-weight: 700; font-size: 15px;
+  box-shadow: var(--ombre-forte);
+}
+.action-flottante:hover { background: var(--socom-clair); }
+
+/* =========================================================
+   Vue technicien (mobile-first)
+========================================================= */
+.tech-wrap { max-width: 560px; margin: 0 auto; padding: 18px 16px 90px; }
+.mon-statut {
+  background: var(--carte); border: 1px solid var(--bordure); border-radius: 16px;
+  padding: 20px; box-shadow: var(--ombre); text-align: center;
+  border-top: 5px solid var(--indispo);
+}
+.mon-statut.st-disponible   { border-top-color: var(--dispo); }
+.mon-statut.st-en_depannage { border-top-color: var(--depann); }
+.mon-statut.st-repos        { border-top-color: var(--repos); }
+.mon-statut .mon-nom { font-size: 20px; font-weight: 800; }
+.mon-statut .grande-pastille { margin: 10px 0 4px; font-size: 15px; padding: 8px 18px; }
+.mon-statut .mini-jauges { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; text-align: left; }
+
+.segment-statut { display: flex; gap: 6px; margin-top: 14px; }
+.segment-statut button {
+  flex: 1; padding: 10px 4px; border-radius: 10px; border: 1px solid var(--bordure);
+  background: #fff; font: inherit; font-size: 13px; font-weight: 600; color: var(--ardoise); cursor: pointer;
+}
+.segment-statut button.actif { border-color: var(--socom); background: rgba(30,58,138,.06); color: var(--socom); }
+
+.carte-dep-tech {
+  background: var(--carte); border: 1px solid var(--bordure); border-radius: 14px;
+  padding: 16px; box-shadow: var(--ombre); margin-bottom: 12px;
+  border-left: 4px solid var(--normale);
+}
+.carte-dep-tech.pri-critique { border-left-color: var(--critique); }
+.carte-dep-tech.pri-urgente  { border-left-color: var(--urgente); }
+.carte-dep-tech .haut { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.carte-dep-tech .client { font-weight: 700; font-size: 17px; }
+.carte-dep-tech .lieu { color: var(--ardoise); font-size: 13.5px; }
+.carte-dep-tech .desc { font-size: 14px; margin: 8px 0; }
+.carte-dep-tech .chrono {
+  font-variant-numeric: tabular-nums; font-weight: 800; font-size: 22px; color: var(--depann);
+  text-align: center; margin: 6px 0 12px; letter-spacing: .02em;
+}
+
+/* =========================================================
+   Connexion
+========================================================= */
+.login-fond {
+  min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(1200px 600px at 50% -10%, var(--socom-clair), var(--socom-fonce));
+  padding: 20px;
+}
+.login-carte {
+  background: var(--carte); border-radius: 18px; padding: 32px; width: 100%; max-width: 400px;
+  box-shadow: var(--ombre-forte);
+}
+.login-carte .marque { font-weight: 800; font-size: 22px; letter-spacing: .04em; color: var(--socom); }
+.login-carte .marque small { display: block; font-size: 11px; letter-spacing: .16em; color: var(--ardoise); text-transform: uppercase; margin-top: 2px; font-weight: 600; }
+.login-carte h1 { font-size: 16px; color: var(--encre); margin: 22px 0 18px; font-weight: 600; }
+.login-carte .champ { margin-bottom: 14px; }
+.login-carte .erreur { background: #FEE2E2; color: var(--depasse); font-size: 13px; padding: 10px 12px; border-radius: 9px; margin-bottom: 14px; }
+.login-carte .astuce { font-size: 12px; color: var(--ardoise-clair); margin-top: 14px; text-align: center; }
+
+/* =========================================================
+   Planning
+========================================================= */
+.planning-grille { display: grid; gap: 8px; }
+.semaine-nav { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.semaine-nav .titre { font-size: 16px; font-weight: 700; }
+.jour-ligne {
+  display: grid; grid-template-columns: 130px 1fr; gap: 12px; align-items: stretch;
+  background: var(--carte); border: 1px solid var(--bordure); border-radius: 10px; padding: 12px 14px;
+}
+.jour-ligne.we { background: #F8FAFC; }
+.jour-ligne.aujourdhui { border-color: var(--socom); box-shadow: 0 0 0 2px rgba(30,58,138,.12); }
+.jour-ligne .date { font-weight: 700; }
+.jour-ligne .date small { display: block; color: var(--ardoise); font-weight: 500; font-size: 12px; text-transform: capitalize; }
+.jour-ligne .affectations { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.puce-astreinte {
+  display: inline-flex; align-items: center; gap: 8px; background: var(--repos-bg); color: var(--socom-fonce);
+  padding: 5px 6px 5px 12px; border-radius: 999px; font-size: 13px; font-weight: 600;
+}
+.puce-astreinte .x { background: rgba(0,0,0,.08); border: none; border-radius: 50%; width: 20px; height: 20px; cursor: pointer; color: var(--ardoise); font-size: 13px; }
+.puce-astreinte .x:hover { background: rgba(220,38,38,.15); color: var(--depasse); }
+
+@media (max-width: 640px) {
+  .topbar {
+    padding: 0 12px calc(env(safe-area-inset-top, 0px)) 12px; gap: 8px;
+    padding-top: env(safe-area-inset-top, 0px); height: calc(58px + env(safe-area-inset-top, 0px));
+  }
+  .topbar .marque small, .topbar .qui { display: none; }
+  .topbar .marque { font-size: 16px; }
+  .topbar nav a { padding: 8px 10px; font-size: 13px; }
+  .topbar .horloge { display: none; }
+  .btn-installer { padding: 5px 9px; font-size: 12px; }
+  .contenu { padding: 16px 14px 90px; }
+
+  /* Tableau de bord : une colonne, cartes pleine largeur */
+  .grille-tech { grid-template-columns: 1fr; }
+  .carte-dep { grid-template-columns: 4px 1fr; }
+  .carte-dep .actions { grid-column: 1 / -1; flex-direction: row; justify-content: flex-end; flex-wrap: wrap; }
+  .carte-dep .actions .btn { flex: 1; min-width: 120px; text-align: center; }
+
+  .bandeau-astreinte { padding: 14px 16px; }
+  .action-flottante {
+    right: 14px; left: 14px; bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+    justify-content: center;
+  }
+  .jour-ligne { grid-template-columns: 78px 1fr; padding: 10px 12px; }
+  .semaine-nav { flex-wrap: wrap; }
+  .semaine-nav .titre { order: -1; width: 100%; }
+
+  .modale { max-width: none; border-radius: 16px 16px 0 0; align-self: flex-end; }
+  .overlay { align-items: flex-end; padding: 0; }
+}
+
+/* Confort tactile : cibles ≥ 44px sur écrans à pointeur grossier */
+@media (pointer: coarse) {
+  .btn { padding: 11px 16px; }
+  .pastille { padding: 6px 12px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}

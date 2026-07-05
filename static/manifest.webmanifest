@@ -1,0 +1,17 @@
+{
+  "name": "SOCOM Astreinte",
+  "short_name": "Astreinte",
+  "description": "Gestion des astreintes SOCOM : planning, dépannages, statut et heures.",
+  "lang": "fr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#142657",
+  "theme_color": "#1E3A8A",
+  "icons": [
+    { "src": "/static/icone-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/static/icone-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/static/icone-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

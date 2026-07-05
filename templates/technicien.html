@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% set page = 'technicien' %}
+{% block titre %}Mes interventions · SOCOM Astreinte{% endblock %}
+{% block contenu %}
+<div class="tech-wrap">
+
+  <div class="mon-statut" id="mon-statut">
+    <div class="mon-nom" id="mon-nom">…</div>
+    <span class="pastille grande-pastille" id="ma-pastille">—</span>
+    <div class="mini-jauges" id="mes-jauges"></div>
+    <div class="segment-statut" id="mes-boutons-statut">
+      <button data-statut="disponible">Disponible</button>
+      <button data-statut="repos">Repos</button>
+      <button data-statut="indisponible">Indispo.</button>
+    </div>
+  </div>
+
+  <div class="section-titre">Mes dépannages <span class="compte" id="compte-mes-dep">0</span><span class="barre"></span></div>
+  <div id="mes-depannages"></div>
+
+  <div class="section-titre">À prendre <span class="compte" id="compte-libres">0</span><span class="barre"></span></div>
+  <div id="depannages-libres"></div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+<script>demarrerTechnicien();</script>
+{% endblock %}

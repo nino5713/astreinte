@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% set page = 'dashboard' %}
+{% block titre %}Tableau de bord · SOCOM Astreinte{% endblock %}
+{% block contenu %}
+<div class="contenu">
+
+  <div id="bandeau-astreinte"></div>
+
+  <div class="section-titre">
+    Techniciens <span class="compte" id="compte-tech">0</span>
+    <span class="barre"></span>
+  </div>
+  <div class="grille-tech" id="grille-tech"></div>
+
+  <div class="section-titre">
+    Dépannages en cours <span class="compte" id="compte-dep">0</span>
+    <span class="barre"></span>
+  </div>
+  <div class="liste-dep" id="liste-dep"></div>
+
+</div>
+
+<button class="action-flottante" id="btn-nouveau">＋ Nouveau dépannage</button>
+
+<!-- Modale : nouveau dépannage -->
+<div class="overlay" id="modale-dep">
+  <div class="modale">
+    <div class="tete"><h3>Nouveau dépannage</h3><button class="fermer" data-fermer>×</button></div>
+    <div class="corps">
+      <div class="champ">
+        <label>Client *</label>
+        <input type="text" id="f-client" placeholder="Ex. Police Grand-Ducale — site Findel">
+      </div>
+      <div class="champ">
+        <label>Lieu</label>
+        <input type="text" id="f-lieu" placeholder="Adresse ou site">
+      </div>
+      <div class="champ">
+        <label>Description</label>
+        <textarea id="f-desc" placeholder="Nature de la panne, matériel concerné…"></textarea>
+      </div>
+      <div class="champ">
+        <label>Priorité</label>
+        <div class="segment" id="f-priorite">
+          <label><input type="radio" name="pri" value="normale" checked><span>Normale</span></label>
+          <label><input type="radio" name="pri" value="urgente"><span>Urgente</span></label>
+          <label><input type="radio" name="pri" value="critique"><span>Critique</span></label>
+        </div>
+      </div>
+      <div class="champ">
+        <label>Assigner à (facultatif)</label>
+        <select id="f-tech"><option value="">— Laisser non assigné —</option></select>
+      </div>
+    </div>
+    <div class="pied">
+      <button class="btn fantome" data-fermer>Annuler</button>
+      <button class="btn primaire" id="btn-creer-dep">Créer le dépannage</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modale : assigner -->
+<div class="overlay" id="modale-assign">
+  <div class="modale">
+    <div class="tete"><h3>Assigner le dépannage</h3><button class="fermer" data-fermer>×</button></div>
+    <div class="corps">
+      <div class="champ">
+        <label>Technicien</label>
+        <select id="a-tech"></select>
+      </div>
+      <p id="a-avert" style="font-size:13px;color:var(--attention);margin:0;display:none;"></p>
+    </div>
+    <div class="pied">
+      <button class="btn fantome" data-fermer>Annuler</button>
+      <button class="btn primaire" id="btn-confirmer-assign">Assigner</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+<script>demarrerDashboard();</script>
+{% endblock %}

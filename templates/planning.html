@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% set page = 'planning' %}
+{% block titre %}Planning · SOCOM Astreinte{% endblock %}
+{% block contenu %}
+<div class="contenu">
+  <div class="semaine-nav">
+    <button class="btn" id="sem-prec">‹ Semaine préc.</button>
+    <div class="titre" id="sem-titre">…</div>
+    <button class="btn" id="sem-suiv">Semaine suiv. ›</button>
+    <button class="btn fantome" id="sem-auj">Aujourd'hui</button>
+  </div>
+
+  <div class="planning-grille" id="planning-grille"></div>
+</div>
+
+<!-- Modale : affecter une astreinte (dispatcher) -->
+<div class="overlay" id="modale-astreinte">
+  <div class="modale">
+    <div class="tete"><h3 id="astreinte-titre">Affecter l'astreinte</h3><button class="fermer" data-fermer>×</button></div>
+    <div class="corps">
+      <div class="champ">
+        <label>Technicien</label>
+        <select id="p-tech"></select>
+      </div>
+      <div class="champ">
+        <label>Du</label>
+        <input type="date" id="p-debut">
+      </div>
+      <div class="champ">
+        <label>Au (inclus)</label>
+        <input type="date" id="p-fin">
+      </div>
+      <div class="champ">
+        <label>Libellé (facultatif)</label>
+        <input type="text" id="p-libelle" placeholder="Ex. Astreinte week-end">
+      </div>
+    </div>
+    <div class="pied">
+      <button class="btn fantome" data-fermer>Annuler</button>
+      <button class="btn primaire" id="btn-creer-astreinte">Affecter</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+<script>demarrerPlanning();</script>
+{% endblock %}

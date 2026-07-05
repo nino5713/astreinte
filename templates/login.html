@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% set cache_topbar = true %}
+{% block titre %}Connexion · SOCOM Astreinte{% endblock %}
+{% block contenu %}
+<div class="login-fond">
+  <div class="login-carte">
+    <div class="marque">SOCOM<small>Gestion des astreintes</small></div>
+    <h1>Identifiez-vous pour commencer</h1>
+    {% if erreur %}<div class="erreur">{{ erreur }}</div>{% endif %}
+    <form method="post">
+      <div class="champ">
+        <label for="technicien_id">Nom</label>
+        <select name="technicien_id" id="technicien_id" required>
+          <option value="" disabled selected>Sélectionnez…</option>
+          {% for t in techniciens %}
+            <option value="{{ t['id'] }}">{{ t['nom'] }}{% if t['role'] == 'dispatcher' %} — Dispatch{% endif %}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="champ">
+        <label for="pin">Code PIN</label>
+        <input type="password" name="pin" id="pin" inputmode="numeric" autocomplete="off" required>
+      </div>
+      <button type="submit" class="btn primaire grand">Se connecter</button>
+    </form>
+    <div class="astuce">Comptes de démo — Dispatch : 0000 · techniciens : 1111, 2222, 3333, 4444</div>
+  </div>
+</div>
+{% endblock %}

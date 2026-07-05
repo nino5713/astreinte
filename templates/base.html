@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1E3A8A">
+  <title>{% block titre %}Astreinte · SOCOM{% endblock %}</title>
+
+  <!-- PWA -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="{{ url_for('static', filename='favicon.png') }}">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Astreinte">
+  <meta name="mobile-web-app-capable" content="yes">
+
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+{% if not cache_topbar %}
+  <header class="topbar">
+    <div class="marque">SOCOM <small>Astreinte</small></div>
+    <nav>
+      {% if utilisateur['role'] == 'dispatcher' %}
+        <a href="{{ url_for('dashboard') }}" class="{{ 'actif' if page == 'dashboard' }}">Tableau de bord</a>
+      {% else %}
+        <a href="{{ url_for('vue_technicien') }}" class="{{ 'actif' if page == 'technicien' }}">Mes interventions</a>
+      {% endif %}
+      <a href="{{ url_for('planning') }}" class="{{ 'actif' if page == 'planning' }}">Planning</a>
+    </nav>
+    <div class="droite">
+      <button id="btn-installer" class="btn-installer" onclick="installerPWA()" style="display:none">↓ Installer</button>
+      <span class="horloge" id="horloge">--:--</span>
+      <span class="qui">{{ utilisateur['nom'] }}</span>
+      <a href="{{ url_for('logout') }}" class="deconnexion">Quitter</a>
+    </div>
+  </header>
+{% endif %}
+  {% block contenu %}{% endblock %}
+  <script>
+    window.MOI = {{ utilisateur['id'] if utilisateur else 'null' }};
+    window.MON_ROLE = "{{ utilisateur['role'] if utilisateur else '' }}";
+
+    // Enregistrement du service worker (PWA)
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/sw.js").catch((e) => console.warn("SW:", e));
+      });
+    }
+
+    // Invite d'installation « Installer l'app » (Android/desktop)
+    let _promptInstall = null;
+    window.addEventListener("beforeinstallprompt", (e) => {
+      e.preventDefault(); _promptInstall = e;
+      const b = document.getElementById("btn-installer");
+      if (b) b.style.display = "inline-flex";
+    });
+    function installerPWA() {
+      if (!_promptInstall) return;
+      _promptInstall.prompt();
+      _promptInstall.userChoice.finally(() => {
+        _promptInstall = null;
+        const b = document.getElementById("btn-installer");
+        if (b) b.style.display = "none";
+      });
+    }
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>
