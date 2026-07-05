@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% set page = 'admin' %}
+{% block titre %}Administration · SOCOM Astreinte{% endblock %}
+{% block contenu %}
+<div class="contenu">
+
+  <div class="section-titre">
+    Utilisateurs <span class="compte" id="compte-users">0</span>
+    <span class="barre"></span>
+    <button class="btn primaire" id="btn-nouvel-user">＋ Nouvel utilisateur</button>
+  </div>
+
+  <div id="liste-users" class="liste-users"></div>
+
+</div>
+
+<!-- Modale : créer un utilisateur -->
+<div class="overlay" id="modale-user">
+  <div class="modale">
+    <div class="tete"><h3>Nouvel utilisateur</h3><button class="fermer" data-fermer>×</button></div>
+    <div class="corps">
+      <div class="champ">
+        <label>Nom *</label>
+        <input type="text" id="u-nom" placeholder="Prénom Nom">
+      </div>
+      <div class="champ">
+        <label>Téléphone</label>
+        <input type="text" id="u-tel" placeholder="+352 621 …">
+      </div>
+      <div class="champ">
+        <label>Rôle</label>
+        <div class="segment" id="u-role">
+          <label><input type="radio" name="role" value="technicien" checked><span>Technicien</span></label>
+          <label><input type="radio" name="role" value="dispatcher"><span>Dispatcher</span></label>
+          <label><input type="radio" name="role" value="admin"><span>Admin</span></label>
+        </div>
+      </div>
+      <div class="champ">
+        <label>Code PIN (min. 4 chiffres)</label>
+        <input type="text" id="u-pin" inputmode="numeric" autocomplete="off" placeholder="Ex. 4827">
+      </div>
+      <p class="aide-role" id="u-aide"></p>
+    </div>
+    <div class="pied">
+      <button class="btn fantome" data-fermer>Annuler</button>
+      <button class="btn primaire" id="btn-creer-user">Créer l'utilisateur</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modale : réinitialiser le PIN -->
+<div class="overlay" id="modale-pin">
+  <div class="modale">
+    <div class="tete"><h3 id="pin-titre">Réinitialiser le PIN</h3><button class="fermer" data-fermer>×</button></div>
+    <div class="corps">
+      <div class="champ">
+        <label>Nouveau code PIN (min. 4 chiffres)</label>
+        <input type="text" id="p-nouveau-pin" inputmode="numeric" autocomplete="off">
+      </div>
+    </div>
+    <div class="pied">
+      <button class="btn fantome" data-fermer>Annuler</button>
+      <button class="btn primaire" id="btn-confirmer-pin">Enregistrer</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+<script>demarrerAdmin();</script>
+{% endblock %}

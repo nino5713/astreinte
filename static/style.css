@@ -204,6 +204,35 @@ a { color: inherit; }
 .vide { color: var(--ardoise); font-size: 14px; padding: 22px; text-align: center;
         background: var(--carte); border: 1px dashed var(--bordure); border-radius: var(--r); }
 
+/* ---------- Administration des utilisateurs ---------- */
+.liste-users { display: grid; gap: 10px; }
+.carte-user {
+  background: var(--carte); border: 1px solid var(--bordure); border-radius: var(--r);
+  padding: 14px 16px; box-shadow: var(--ombre);
+  display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
+}
+.carte-user.inactif { opacity: .62; }
+.carte-user .u-nom { font-weight: 700; font-size: 15.5px; }
+.carte-user .u-tag-inactif { font-size: 11px; font-weight: 700; color: var(--indispo);
+  background: var(--indispo-bg); padding: 1px 7px; border-radius: 6px; text-transform: uppercase; letter-spacing: .04em; }
+.carte-user .u-meta { display: flex; align-items: center; gap: 10px; margin-top: 5px; }
+.carte-user .u-role { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 6px;
+  text-transform: uppercase; letter-spacing: .04em; }
+.carte-user .u-role.r-technicien { color: var(--dispo); background: var(--dispo-bg); }
+.carte-user .u-role.r-dispatcher { color: var(--socom); background: rgba(30,58,138,.09); }
+.carte-user .u-role.r-admin { color: #B45309; background: #FEF3C7; }
+.carte-user .u-tel { font-size: 12.5px; color: var(--ardoise); font-variant-numeric: tabular-nums; }
+.carte-user .u-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.section-titre button { letter-spacing: 0; text-transform: none; margin-left: auto; }
+.aide-role { font-size: 12.5px; color: var(--ardoise); margin: 0; background: var(--fond);
+  padding: 10px 12px; border-radius: 9px; }
+
+@media (max-width: 640px) {
+  .carte-user { flex-direction: column; align-items: stretch; }
+  .carte-user .u-actions { justify-content: stretch; }
+  .carte-user .u-actions .btn { flex: 1; }
+}
+
 /* ---------- Bandeau astreinte du jour ---------- */
 .bandeau-astreinte {
   background: linear-gradient(120deg, var(--socom), var(--socom-fonce));

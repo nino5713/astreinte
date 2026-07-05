@@ -439,3 +439,107 @@ async function suppAstreinte(id) {
   try { await api(`/api/astreinte/${id}`, "DELETE"); rendrePlanning(); }
   catch (e) { alert(e.message); }
 }
+
+/* =====================================================================
+   ADMINISTRATION DES UTILISATEURS
+===================================================================== */
+const LIB_ROLE = { technicien: "Technicien", dispatcher: "Dispatcher", admin: "Administrateur" };
+let _pinCible = null;
+
+function demarrerAdmin() {
+  brancherFermetures();
+  horloge(); setInterval(horloge, 1000);
+  document.getElementById("btn-nouvel-user").addEventListener("click", ouvrirNouvelUser);
+  document.getElementById("btn-creer-user").addEventListener("click", creerUser);
+  document.getElementById("btn-confirmer-pin").addEventListener("click", confirmerPin);
+  document.querySelectorAll('#u-role input').forEach((r) => r.addEventListener("change", majAideRole));
+  chargerUsers();
+}
+
+async function chargerUsers() {
+  let users = [];
+  try { users = await api("/api/admin/utilisateurs"); } catch (e) { alert(e.message); return; }
+  document.getElementById("compte-users").textContent = users.length;
+  const l = document.getElementById("liste-users");
+  l.innerHTML = users.map((u) => {
+    const inactif = u.actif ? "" : " inactif";
+    return `<div class="carte-user${inactif}">
+      <div class="u-ident">
+        <div class="u-nom">${ech(u.nom)}${u.actif ? "" : ' <span class="u-tag-inactif">désactivé</span>'}</div>
+        <div class="u-meta">
+          <span class="u-role r-${u.role}">${LIB_ROLE[u.role] || u.role}</span>
+          ${u.telephone ? `<span class="u-tel">${ech(u.telephone)}</span>` : ""}
+        </div>
+      </div>
+      <div class="u-actions">
+        <button class="btn" onclick="ouvrirPin(${u.id}, '${ech(u.nom).replace(/'/g, "\\'")}')">PIN</button>
+        ${u.actif
+          ? `<button class="btn" onclick="basculerActif(${u.id}, false)">Désactiver</button>`
+          : `<button class="btn succes" onclick="basculerActif(${u.id}, true)">Réactiver</button>`}
+        <button class="btn danger" onclick="supprimerUser(${u.id}, '${ech(u.nom).replace(/'/g, "\\'")}')">Supprimer</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function majAideRole() {
+  const role = document.querySelector('#u-role input:checked').value;
+  const aides = {
+    technicien: "Accède à ses interventions, démarre/termine les dépannages, voit ses heures.",
+    dispatcher: "Accède au tableau de bord, crée et assigne les dépannages, gère le planning.",
+    admin: "Accès complet, dont cette page de gestion des utilisateurs.",
+  };
+  document.getElementById("u-aide").textContent = aides[role] || "";
+}
+
+function ouvrirNouvelUser() {
+  document.getElementById("u-nom").value = "";
+  document.getElementById("u-tel").value = "";
+  document.getElementById("u-pin").value = "";
+  document.querySelector('#u-role input[value="technicien"]').checked = true;
+  majAideRole();
+  ouvrir("modale-user");
+  document.getElementById("u-nom").focus();
+}
+
+async function creerUser() {
+  const corps = {
+    nom: document.getElementById("u-nom").value.trim(),
+    telephone: document.getElementById("u-tel").value.trim(),
+    role: document.querySelector('#u-role input:checked').value,
+    pin: document.getElementById("u-pin").value.trim(),
+  };
+  if (!corps.nom) { document.getElementById("u-nom").focus(); return; }
+  if (corps.pin.length < 4) { alert("Le code PIN doit faire au moins 4 chiffres."); return; }
+  try { await api("/api/admin/utilisateur", "POST", corps); fermer("modale-user"); chargerUsers(); }
+  catch (e) { alert(e.message); }
+}
+
+function ouvrirPin(id, nom) {
+  _pinCible = id;
+  document.getElementById("pin-titre").textContent = "Réinitialiser le PIN — " + nom;
+  document.getElementById("p-nouveau-pin").value = "";
+  ouvrir("modale-pin");
+  document.getElementById("p-nouveau-pin").focus();
+}
+
+async function confirmerPin() {
+  const pin = document.getElementById("p-nouveau-pin").value.trim();
+  if (pin.length < 4) { alert("Le code PIN doit faire au moins 4 chiffres."); return; }
+  try { await api(`/api/admin/utilisateur/${_pinCible}/pin`, "POST", { pin }); fermer("modale-pin"); }
+  catch (e) { alert(e.message); }
+}
+
+async function basculerActif(id, actif) {
+  try { await api(`/api/admin/utilisateur/${id}/actif`, "POST", { actif }); chargerUsers(); }
+  catch (e) { alert(e.message); }
+}
+
+async function supprimerUser(id, nom) {
+  if (!confirm(`Supprimer l'utilisateur « ${nom} » ?`)) return;
+  try {
+    const r = await api(`/api/admin/utilisateur/${id}`, "DELETE");
+    if (r.info) alert(r.info);
+    chargerUsers();
+  } catch (e) { alert(e.message); }
+}

@@ -34,6 +34,7 @@ ALERTE_H_SEMAINE = 40.0    # ambre au-delà
 STATUTS_TECH = ["disponible", "en_depannage", "repos", "indisponible"]
 STATUTS_DEP = ["nouveau", "assigne", "en_cours", "termine", "annule"]
 PRIORITES = ["normale", "urgente", "critique"]
+ROLES = ["technicien", "dispatcher", "admin"]
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("ASTREINTE_SECRET", "change-me-en-production")
@@ -220,10 +221,26 @@ def dispatcher_requis(f):
         u = courant(db)
         if not u:
             return redirect(url_for("login"))
-        if u["role"] != "dispatcher":
+        # L'admin est un super-utilisateur : il passe aussi les portes dispatcher.
+        if u["role"] not in ("dispatcher", "admin"):
             if request.path.startswith("/api/"):
                 return jsonify({"erreur": "réservé au dispatcher"}), 403
             return redirect(url_for("vue_technicien"))
+        return f(*a, **kw)
+    return wrap
+
+
+def admin_requis(f):
+    @wraps(f)
+    def wrap(*a, **kw):
+        db = get_db()
+        u = courant(db)
+        if not u:
+            return redirect(url_for("login"))
+        if u["role"] != "admin":
+            if request.path.startswith("/api/"):
+                return jsonify({"erreur": "réservé à l'administrateur"}), 403
+            return redirect(url_for("index"))
         return f(*a, **kw)
     return wrap
 
@@ -237,6 +254,8 @@ def index():
     u = courant(db)
     if not u:
         return redirect(url_for("login"))
+    if u["role"] == "admin":
+        return redirect(url_for("admin"))
     if u["role"] == "dispatcher":
         return redirect(url_for("dashboard"))
     return redirect(url_for("vue_technicien"))
@@ -290,6 +309,141 @@ def planning():
     return render_template("planning.html", utilisateur=courant(db))
 
 
+@app.route("/admin")
+@admin_requis
+def admin():
+    db = get_db()
+    return render_template("admin.html", utilisateur=courant(db), roles=ROLES)
+
+
+# --------------------------------------------------------------------------
+# API — administration des utilisateurs (réservé admin)
+# --------------------------------------------------------------------------
+LIB_ROLE = {"technicien": "Technicien", "dispatcher": "Dispatcher", "admin": "Administrateur"}
+
+
+@app.route("/api/admin/utilisateurs")
+@admin_requis
+def api_admin_liste():
+    db = get_db()
+    rows = db.execute(
+        "SELECT id, nom, telephone, role, statut, actif FROM techniciens ORDER BY actif DESC, role DESC, nom"
+    ).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/admin/utilisateur", methods=["POST"])
+@admin_requis
+def api_admin_creer():
+    db = get_db()
+    data = request.get_json(force=True)
+    nom = (data.get("nom") or "").strip()
+    role = data.get("role", "technicien")
+    pin = (data.get("pin") or "").strip()
+    tel = (data.get("telephone") or "").strip()
+    if not nom:
+        return jsonify({"erreur": "Le nom est obligatoire."}), 400
+    if role not in ROLES:
+        return jsonify({"erreur": "Rôle invalide."}), 400
+    if len(pin) < 4:
+        return jsonify({"erreur": "Le code PIN doit faire au moins 4 caractères."}), 400
+    existe = db.execute("SELECT 1 FROM techniciens WHERE nom = ? AND actif = 1", (nom,)).fetchone()
+    if existe:
+        return jsonify({"erreur": "Un utilisateur actif porte déjà ce nom."}), 400
+    cur = db.execute(
+        "INSERT INTO techniciens (nom, telephone, role, pin_hash, statut, actif) VALUES (?,?,?,?, 'disponible', 1)",
+        (nom, tel, role, generate_password_hash(pin)),
+    )
+    db.commit()
+    return jsonify({"ok": True, "id": cur.lastrowid})
+
+
+@app.route("/api/admin/utilisateur/<int:uid>/pin", methods=["POST"])
+@admin_requis
+def api_admin_pin(uid):
+    db = get_db()
+    pin = (request.get_json(force=True).get("pin") or "").strip()
+    if len(pin) < 4:
+        return jsonify({"erreur": "Le code PIN doit faire au moins 4 caractères."}), 400
+    if not db.execute("SELECT 1 FROM techniciens WHERE id = ?", (uid,)).fetchone():
+        abort(404)
+    db.execute("UPDATE techniciens SET pin_hash = ? WHERE id = ?", (generate_password_hash(pin), uid))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/admin/utilisateur/<int:uid>/role", methods=["POST"])
+@admin_requis
+def api_admin_role(uid):
+    db = get_db()
+    u = courant(db)
+    role = request.get_json(force=True).get("role")
+    if role not in ROLES:
+        return jsonify({"erreur": "Rôle invalide."}), 400
+    cible = db.execute("SELECT * FROM techniciens WHERE id = ?", (uid,)).fetchone()
+    if not cible:
+        abort(404)
+    # Ne pas rétrograder le dernier admin actif.
+    if cible["role"] == "admin" and role != "admin" and _compte_admins(db, sauf=uid) == 0:
+        return jsonify({"erreur": "Impossible : c'est le dernier administrateur actif."}), 400
+    db.execute("UPDATE techniciens SET role = ? WHERE id = ?", (role, uid))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/admin/utilisateur/<int:uid>/actif", methods=["POST"])
+@admin_requis
+def api_admin_actif(uid):
+    db = get_db()
+    u = courant(db)
+    actif = 1 if request.get_json(force=True).get("actif") else 0
+    cible = db.execute("SELECT * FROM techniciens WHERE id = ?", (uid,)).fetchone()
+    if not cible:
+        abort(404)
+    if not actif and uid == u["id"]:
+        return jsonify({"erreur": "Vous ne pouvez pas désactiver votre propre compte."}), 400
+    if not actif and cible["role"] == "admin" and _compte_admins(db, sauf=uid) == 0:
+        return jsonify({"erreur": "Impossible : c'est le dernier administrateur actif."}), 400
+    db.execute("UPDATE techniciens SET actif = ? WHERE id = ?", (actif, uid))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/admin/utilisateur/<int:uid>", methods=["DELETE"])
+@admin_requis
+def api_admin_supprimer(uid):
+    db = get_db()
+    u = courant(db)
+    cible = db.execute("SELECT * FROM techniciens WHERE id = ?", (uid,)).fetchone()
+    if not cible:
+        abort(404)
+    if uid == u["id"]:
+        return jsonify({"erreur": "Vous ne pouvez pas supprimer votre propre compte."}), 400
+    if cible["role"] == "admin" and _compte_admins(db, sauf=uid) == 0:
+        return jsonify({"erreur": "Impossible : c'est le dernier administrateur actif."}), 400
+    # Si l'utilisateur a un historique (dépannages / astreintes), on désactive au lieu de supprimer.
+    lien = db.execute(
+        "SELECT (SELECT COUNT(*) FROM depannages WHERE technicien_id=?) + (SELECT COUNT(*) FROM astreintes WHERE technicien_id=?) AS n",
+        (uid, uid),
+    ).fetchone()["n"]
+    if lien > 0:
+        db.execute("UPDATE techniciens SET actif = 0 WHERE id = ?", (uid,))
+        db.commit()
+        return jsonify({"ok": True, "desactive": True,
+                        "info": "Compte lié à un historique : désactivé plutôt que supprimé."})
+    db.execute("DELETE FROM techniciens WHERE id = ?", (uid,))
+    db.commit()
+    return jsonify({"ok": True, "supprime": True})
+
+
+def _compte_admins(db, sauf=None):
+    if sauf is None:
+        return db.execute("SELECT COUNT(*) AS c FROM techniciens WHERE role='admin' AND actif=1").fetchone()["c"]
+    return db.execute(
+        "SELECT COUNT(*) AS c FROM techniciens WHERE role='admin' AND actif=1 AND id != ?", (sauf,)
+    ).fetchone()["c"]
+
+
 # --------------------------------------------------------------------------
 # PWA : service worker (racine), manifeste, page hors-ligne
 # --------------------------------------------------------------------------
@@ -335,7 +489,7 @@ def api_etat():
 
     techs_out = []
     for t in techs:
-        if t["role"] == "dispatcher":
+        if t["role"] != "technicien":
             continue
         h = heures_technicien(db, t["id"])
         techs_out.append({

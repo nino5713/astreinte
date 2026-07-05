@@ -22,12 +22,15 @@
   <header class="topbar">
     <div class="marque">SOCOM <small>Astreinte</small></div>
     <nav>
-      {% if utilisateur['role'] == 'dispatcher' %}
+      {% if utilisateur['role'] in ('dispatcher', 'admin') %}
         <a href="{{ url_for('dashboard') }}" class="{{ 'actif' if page == 'dashboard' }}">Tableau de bord</a>
       {% else %}
         <a href="{{ url_for('vue_technicien') }}" class="{{ 'actif' if page == 'technicien' }}">Mes interventions</a>
       {% endif %}
       <a href="{{ url_for('planning') }}" class="{{ 'actif' if page == 'planning' }}">Planning</a>
+      {% if utilisateur['role'] == 'admin' %}
+        <a href="{{ url_for('admin') }}" class="{{ 'actif' if page == 'admin' }}">Administration</a>
+      {% endif %}
     </nav>
     <div class="droite">
       <button id="btn-installer" class="btn-installer" onclick="installerPWA()" style="display:none">↓ Installer</button>

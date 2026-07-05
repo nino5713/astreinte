@@ -26,9 +26,36 @@ compteur horaire avec plafonds légaux (10 h/jour, 48 h/semaine).
 | Ana      | technicien | 3333 |
 | Tom      | technicien | 4444 |
 
-> Les PIN sont hachés (werkzeug). Change-les et ajoute tes vrais
-> techniciens directement en base, ou via une petite page d'admin à
-> ajouter en Phase 2.
+> Les PIN sont hachés (werkzeug). En production, crée un compte admin
+> (voir ci-dessous), puis gère tes vrais utilisateurs depuis l'interface
+> et supprime ces comptes de démonstration.
+
+## Administration des utilisateurs
+
+L'application a trois rôles : **technicien** (ses interventions),
+**dispatcher** (tableau de bord, dépannages, planning) et **admin**
+(accès complet + gestion des utilisateurs).
+
+### Créer le premier admin
+
+Aucun admin n'existe au départ. Lance le script une fois sur le serveur,
+avec le Python de l'environnement virtuel :
+
+```bash
+sudo -u www-data /opt/astreinte/venv/bin/python /opt/astreinte/init_admin.py
+```
+
+Il demande un nom, un téléphone (facultatif) et un code PIN (saisi deux
+fois, masqué), et crée un compte de rôle **admin**.
+
+### Ensuite
+
+Connecte-toi avec ce compte → onglet **Administration**. Tu peux créer
+des utilisateurs (technicien / dispatcher / admin), réinitialiser un PIN,
+désactiver ou réactiver un compte, et supprimer les comptes de démo. Un
+compte lié à un historique (dépannages, astreintes) est désactivé plutôt
+que supprimé, pour préserver les données. Le dernier admin actif ne peut
+pas être supprimé ni rétrogradé.
 
 ## Lancer en local
 
