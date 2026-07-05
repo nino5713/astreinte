@@ -99,6 +99,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             nom TEXT NOT NULL,
             couleur TEXT NOT NULL DEFAULT '#1E3A8A',
+            deux_colonnes INTEGER NOT NULL DEFAULT 0,   -- 1 = colonne Back-up
             actif INTEGER NOT NULL DEFAULT 1
         );
 
@@ -107,9 +108,20 @@ def init_db():
             technicien_id INTEGER NOT NULL REFERENCES techniciens(id) ON DELETE CASCADE,
             PRIMARY KEY (equipe_id, technicien_id)
         );
+
+        -- Planning : un technicien d'astreinte par équipe / jour / poste.
+        CREATE TABLE IF NOT EXISTS gardes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            equipe_id INTEGER NOT NULL REFERENCES equipes(id) ON DELETE CASCADE,
+            technicien_id INTEGER NOT NULL REFERENCES techniciens(id) ON DELETE CASCADE,
+            jour TEXT NOT NULL,                       -- YYYY-MM-DD
+            slot TEXT NOT NULL DEFAULT 'titulaire',   -- 'titulaire' | 'backup'
+            UNIQUE(equipe_id, jour, slot)
+        );
         """
     )
     _migration_astreintes_equipes(db)
+    _migration_equipe_double(db)
     # Jeu de données initial (uniquement si vide)
     n = db.execute("SELECT COUNT(*) AS c FROM techniciens").fetchone()["c"]
     if n == 0:
@@ -155,6 +167,14 @@ def _migration_astreintes_equipes(db):
         """
     )
     db.commit()
+
+
+def _migration_equipe_double(db):
+    """Ajoute la colonne deux_colonnes à equipes si absente (bases existantes)."""
+    cols = [r[1] for r in db.execute("PRAGMA table_info(equipes)").fetchall()]
+    if "deux_colonnes" not in cols:
+        db.execute("ALTER TABLE equipes ADD COLUMN deux_colonnes INTEGER NOT NULL DEFAULT 0")
+        db.commit()
 
 
 def now_tz():
@@ -553,9 +573,17 @@ def api_etat():
         (iso(now_tz() - timedelta(hours=12)),),
     ).fetchall()
 
-    # Astreinte du jour (équipes + éventuels techniciens individuels hérités)
+    # Astreinte du jour : gardes regroupées par équipe (titulaire + back-up)
     aujourdhui = now_tz().date().isoformat()
-    astreinte = astreintes_resolues(db, aujourdhui, aujourdhui)
+    gardes = gardes_resolues(db, aujourdhui, aujourdhui)
+    par_equipe = {}
+    for g in gardes:
+        e = par_equipe.setdefault(g["equipe_id"], {
+            "equipe_nom": g["equipe_nom"], "couleur": g["equipe_couleur"],
+            "titulaire": None, "backup": None,
+        })
+        e[g["slot"]] = g["technicien_nom"]
+    astreinte = list(par_equipe.values())
 
     return jsonify({
         "maintenant": iso(now_tz()),
@@ -726,89 +754,69 @@ def api_statut_tech(tid):
 
 
 # --------------------------------------------------------------------------
-# API — planning d'astreinte (lecture : tous ; édition : admin uniquement)
+# API — planning (gardes) : lecture pour tous, édition admin uniquement
 # --------------------------------------------------------------------------
-def astreintes_resolues(db, debut, fin):
-    """Renvoie les astreintes chevauchant [debut, fin], chaque entrée résolue
-    avec son équipe + membres, ou son technicien (cas hérité)."""
+def gardes_resolues(db, debut, fin):
+    """Gardes entre [debut, fin] avec équipe et technicien résolus."""
     rows = db.execute(
-        """SELECT a.id, a.equipe_id, a.technicien_id, a.date_debut, a.date_fin, a.libelle,
+        """SELECT g.id, g.equipe_id, g.technicien_id, g.jour, g.slot,
                   e.nom AS equipe_nom, e.couleur AS equipe_couleur,
                   t.nom AS technicien_nom
-           FROM astreintes a
-           LEFT JOIN equipes e ON a.equipe_id = e.id
-           LEFT JOIN techniciens t ON a.technicien_id = t.id
-           WHERE a.date_fin >= ? AND a.date_debut <= ?
-           ORDER BY a.date_debut, e.nom, t.nom""",
+           FROM gardes g
+           JOIN equipes e ON g.equipe_id = e.id
+           JOIN techniciens t ON g.technicien_id = t.id
+           WHERE g.jour >= ? AND g.jour <= ?
+           ORDER BY g.jour, e.nom, g.slot""",
         (debut, fin),
     ).fetchall()
-    out = []
-    for r in rows:
-        entry = {
-            "id": r["id"], "date_debut": r["date_debut"], "date_fin": r["date_fin"],
-            "libelle": r["libelle"],
-        }
-        if r["equipe_id"]:
-            membres = db.execute(
-                """SELECT t.id, t.nom FROM equipe_membres m
-                   JOIN techniciens t ON m.technicien_id = t.id
-                   WHERE m.equipe_id = ? AND t.actif = 1 ORDER BY t.nom""",
-                (r["equipe_id"],),
-            ).fetchall()
-            entry.update({
-                "type": "equipe", "equipe_id": r["equipe_id"],
-                "equipe_nom": r["equipe_nom"], "couleur": r["equipe_couleur"],
-                "membres": [dict(m) for m in membres],
-            })
-        else:
-            entry.update({
-                "type": "technicien", "technicien_id": r["technicien_id"],
-                "technicien_nom": r["technicien_nom"], "couleur": "#1E3A8A",
-            })
-        out.append(entry)
-    return out
+    return [dict(r) for r in rows]
 
 
-@app.route("/api/astreintes")
+@app.route("/api/gardes")
 @login_requis
-def api_liste_astreintes():
+def api_gardes():
     db = get_db()
-    debut = request.args.get("debut")
-    fin = request.args.get("fin")
-    if not (debut and fin):
-        # bornes larges par défaut
-        debut, fin = "0000-01-01", "9999-12-31"
-    return jsonify(astreintes_resolues(db, debut, fin))
+    debut = request.args.get("debut") or "0000-01-01"
+    fin = request.args.get("fin") or "9999-12-31"
+    return jsonify(gardes_resolues(db, debut, fin))
 
 
-@app.route("/api/astreinte", methods=["POST"])
+@app.route("/api/garde", methods=["POST"])
 @admin_requis
-def api_creer_astreinte():
+def api_definir_garde():
+    """Affecte (ou retire) un technicien à une équipe pour un jour + un poste.
+    technicien_id absent/null => on retire l'affectation de ce poste."""
     db = get_db()
     data = request.get_json(force=True)
-    equipe_id = data.get("equipe_id")
+    eid = data.get("equipe_id")
+    jour = data.get("jour")
+    slot = data.get("slot", "titulaire")
     tech_id = data.get("technicien_id")
-    d1 = data.get("date_debut")
-    d2 = data.get("date_fin") or d1
-    if not d1:
-        return jsonify({"erreur": "Date requise."}), 400
-    if not (equipe_id or tech_id):
-        return jsonify({"erreur": "Choisissez une équipe."}), 400
-    if d2 < d1:
-        d1, d2 = d2, d1
-    cur = db.execute(
-        "INSERT INTO astreintes (equipe_id, technicien_id, date_debut, date_fin, libelle) VALUES (?,?,?,?,?)",
-        (equipe_id, tech_id if not equipe_id else None, d1, d2, data.get("libelle", "")),
+    if not (eid and jour):
+        return jsonify({"erreur": "Équipe et jour requis."}), 400
+    if slot not in ("titulaire", "backup"):
+        return jsonify({"erreur": "Poste invalide."}), 400
+    if not db.execute("SELECT 1 FROM equipes WHERE id = ?", (eid,)).fetchone():
+        abort(404)
+
+    if not tech_id:
+        db.execute("DELETE FROM gardes WHERE equipe_id = ? AND jour = ? AND slot = ?", (eid, jour, slot))
+        db.commit()
+        return jsonify({"ok": True, "vide": True})
+
+    # Le technicien doit appartenir à l'équipe.
+    membre = db.execute(
+        "SELECT 1 FROM equipe_membres WHERE equipe_id = ? AND technicien_id = ?", (eid, tech_id)
+    ).fetchone()
+    if not membre:
+        return jsonify({"erreur": "Ce technicien ne fait pas partie de l'équipe."}), 400
+
+    # Upsert sur (equipe, jour, slot).
+    db.execute(
+        """INSERT INTO gardes (equipe_id, technicien_id, jour, slot) VALUES (?,?,?,?)
+           ON CONFLICT(equipe_id, jour, slot) DO UPDATE SET technicien_id = excluded.technicien_id""",
+        (eid, tech_id, jour, slot),
     )
-    db.commit()
-    return jsonify({"ok": True, "id": cur.lastrowid})
-
-
-@app.route("/api/astreinte/<int:aid>", methods=["DELETE"])
-@admin_requis
-def api_suppr_astreinte(aid):
-    db = get_db()
-    db.execute("DELETE FROM astreintes WHERE id = ?", (aid,))
     db.commit()
     return jsonify({"ok": True})
 
@@ -816,60 +824,17 @@ def api_suppr_astreinte(aid):
 @app.route("/api/equipes")
 @login_requis
 def api_equipes_light():
-    """Liste légère des équipes actives (pour afficher les colonnes du planning)."""
+    """Équipes actives + membres + option deux colonnes (pour le planning)."""
     db = get_db()
     rows = db.execute(
-        "SELECT id, nom, couleur FROM equipes WHERE actif = 1 ORDER BY nom"
+        "SELECT id, nom, couleur, deux_colonnes FROM equipes WHERE actif = 1 ORDER BY nom"
     ).fetchall()
-    return jsonify([dict(r) for r in rows])
-
-
-@app.route("/api/astreinte/toggle", methods=["POST"])
-@admin_requis
-def api_toggle_astreinte():
-    """Active/désactive une équipe d'astreinte pour un jour précis.
-    Si le jour est déjà couvert, on le retire (en découpant proprement une
-    éventuelle plage). Sinon on crée une astreinte d'un jour."""
-    db = get_db()
-    data = request.get_json(force=True)
-    eid = data.get("equipe_id")
-    jour = data.get("date")
-    if not (eid and jour):
-        return jsonify({"erreur": "Équipe et date requises."}), 400
-    if not db.execute("SELECT 1 FROM equipes WHERE id = ?", (eid,)).fetchone():
-        abort(404)
-
-    d = datetime.strptime(jour, "%Y-%m-%d").date()
-    rows = db.execute(
-        "SELECT * FROM astreintes WHERE equipe_id = ? AND date_debut <= ? AND date_fin >= ?",
-        (eid, jour, jour),
-    ).fetchall()
-
-    if rows:
-        # Retirer ce jour : supprimer la ligne et recréer les morceaux autour.
-        for r in rows:
-            d1 = datetime.strptime(r["date_debut"], "%Y-%m-%d").date()
-            d2 = datetime.strptime(r["date_fin"], "%Y-%m-%d").date()
-            db.execute("DELETE FROM astreintes WHERE id = ?", (r["id"],))
-            if d1 < d:
-                db.execute(
-                    "INSERT INTO astreintes (equipe_id, date_debut, date_fin, libelle) VALUES (?,?,?,?)",
-                    (eid, d1.isoformat(), (d - timedelta(days=1)).isoformat(), r["libelle"]),
-                )
-            if d2 > d:
-                db.execute(
-                    "INSERT INTO astreintes (equipe_id, date_debut, date_fin, libelle) VALUES (?,?,?,?)",
-                    (eid, (d + timedelta(days=1)).isoformat(), d2.isoformat(), r["libelle"]),
-                )
-        db.commit()
-        return jsonify({"ok": True, "actif": False})
-
-    db.execute(
-        "INSERT INTO astreintes (equipe_id, date_debut, date_fin) VALUES (?,?,?)",
-        (eid, jour, jour),
-    )
-    db.commit()
-    return jsonify({"ok": True, "actif": True})
+    out = []
+    for e in rows:
+        d = dict(e)
+        d["membres"] = _membres_equipe(db, e["id"])
+        out.append(d)
+    return jsonify(out)
 
 
 # --------------------------------------------------------------------------
@@ -890,7 +855,7 @@ def _membres_equipe(db, eid):
 def api_equipes():
     db = get_db()
     equipes = db.execute(
-        "SELECT id, nom, couleur, actif FROM equipes ORDER BY actif DESC, nom"
+        "SELECT id, nom, couleur, deux_colonnes, actif FROM equipes ORDER BY actif DESC, nom"
     ).fetchall()
     out = []
     for e in equipes:
@@ -907,10 +872,11 @@ def api_creer_equipe():
     data = request.get_json(force=True)
     nom = (data.get("nom") or "").strip()
     couleur = data.get("couleur") or "#1E3A8A"
+    deux = 1 if data.get("deux_colonnes") else 0
     membres = data.get("membres") or []
     if not nom:
         return jsonify({"erreur": "Le nom de l'équipe est obligatoire."}), 400
-    cur = db.execute("INSERT INTO equipes (nom, couleur) VALUES (?,?)", (nom, couleur))
+    cur = db.execute("INSERT INTO equipes (nom, couleur, deux_colonnes) VALUES (?,?,?)", (nom, couleur, deux))
     eid = cur.lastrowid
     for tid in membres:
         db.execute("INSERT OR IGNORE INTO equipe_membres (equipe_id, technicien_id) VALUES (?,?)", (eid, tid))
@@ -929,11 +895,21 @@ def api_modifier_equipe(eid):
     if not nom:
         return jsonify({"erreur": "Le nom de l'équipe est obligatoire."}), 400
     couleur = data.get("couleur") or "#1E3A8A"
-    db.execute("UPDATE equipes SET nom = ?, couleur = ? WHERE id = ?", (nom, couleur, eid))
+    deux = 1 if data.get("deux_colonnes") else 0
+    db.execute("UPDATE equipes SET nom = ?, couleur = ?, deux_colonnes = ? WHERE id = ?", (nom, couleur, deux, eid))
     if "membres" in data:
         db.execute("DELETE FROM equipe_membres WHERE equipe_id = ?", (eid,))
         for tid in (data.get("membres") or []):
             db.execute("INSERT OR IGNORE INTO equipe_membres (equipe_id, technicien_id) VALUES (?,?)", (eid, tid))
+        # Retire du planning les gardes des techniciens qui ne sont plus membres.
+        db.execute(
+            """DELETE FROM gardes WHERE equipe_id = ? AND technicien_id NOT IN
+               (SELECT technicien_id FROM equipe_membres WHERE equipe_id = ?)""",
+            (eid, eid),
+        )
+    # Si on repasse en simple colonne, on retire les gardes back-up.
+    if not deux:
+        db.execute("DELETE FROM gardes WHERE equipe_id = ? AND slot = 'backup'", (eid,))
     db.commit()
     return jsonify({"ok": True})
 
@@ -945,6 +921,7 @@ def api_suppr_equipe(eid):
     if not db.execute("SELECT 1 FROM equipes WHERE id = ?", (eid,)).fetchone():
         abort(404)
     # Retire aussi les affectations de planning de cette équipe.
+    db.execute("DELETE FROM gardes WHERE equipe_id = ?", (eid,))
     db.execute("DELETE FROM astreintes WHERE equipe_id = ?", (eid,))
     db.execute("DELETE FROM equipe_membres WHERE equipe_id = ?", (eid,))
     db.execute("DELETE FROM equipes WHERE id = ?", (eid,))

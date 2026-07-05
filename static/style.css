@@ -392,20 +392,37 @@ a { color: inherit; }
   padding: 9px 12px; font-weight: 700; white-space: nowrap;
 }
 .mois-table thead th.coin { left: 0; z-index: 4; }
-.mois-table th.col-eq { text-align: center; min-width: 116px; }
+.mois-table th.col-eq { text-align: center; min-width: 120px; }
+.mois-table thead th.sous { font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--ardoise); padding: 5px 8px; }
+.mois-table thead th.sous.back { color: var(--depann); }
 .mois-table tbody th.jour-cell {
   position: sticky; left: 0; z-index: 2; background: var(--carte);
   text-align: left; padding: 7px 12px; white-space: nowrap; font-weight: 500;
 }
 .jour-cell .jnum { font-weight: 700; }
 .jour-cell .jnom { color: var(--ardoise); text-transform: capitalize; font-size: 12px; }
-.jour-row.we th.jour-cell, .jour-row.we td.cell:not(.on) { background: #F6F8FB; }
+.jour-row.we th.jour-cell, .jour-row.we td.cell { background: #F6F8FB; }
 .jour-row.auj th.jour-cell { border-left: 3px solid var(--socom); color: var(--socom); }
 
-.mois-table td.cell { text-align: center; height: 34px; color: #fff; font-weight: 700; user-select: none; }
+.mois-table td.cell { text-align: center; height: 36px; padding: 3px 5px; vertical-align: middle; }
+.mois-table td.cell.backup { background: #FCFCFD; }
 .mois-table td.cell.editable { cursor: pointer; }
-.mois-table td.cell.editable:not(.on):hover { background: var(--repos-bg); }
-.mois-table td.cell.on.editable:hover { filter: brightness(.9); }
+.mois-table td.cell.editable:hover { background: var(--repos-bg); }
+.pt-nom { display: inline-block; max-width: 130px; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; vertical-align: middle; color: #fff; font-weight: 600; font-size: 12px;
+  padding: 4px 9px; border-radius: 999px; }
+.pt-vide { color: var(--ardoise-clair); font-weight: 700; font-size: 15px; opacity: 0; transition: opacity .12s; }
+.mois-table td.cell.editable:hover .pt-vide { opacity: 1; }
+
+/* Modale de choix du technicien de garde */
+.garde-choix { display: grid; gap: 8px; }
+.choix-tech { justify-content: flex-start; text-align: left; }
+.eq-badge { font-size: 10.5px; font-weight: 700; color: var(--depann); background: var(--depann-bg);
+  padding: 2px 8px; border-radius: 6px; text-transform: uppercase; letter-spacing: .03em; vertical-align: middle; }
+.case-option { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; font-weight: 400 !important; }
+.case-option input { width: 18px; height: 18px; margin-top: 1px; accent-color: var(--socom); flex-shrink: 0; }
+.bandeau-astreinte .bk { color: #C7D2FE; font-weight: 500; }
 
 @media (max-width: 640px) {
   .mois-scroll { max-height: calc(100vh - 190px); }

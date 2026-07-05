@@ -108,12 +108,12 @@ async function rafraichirDashboard() {
 function rendreBandeau(etat) {
   const el = document.getElementById("bandeau-astreinte");
   const items = (etat.astreinte_jour || []).map((a) => {
-    if (a.type === "equipe") {
-      const membres = (a.membres || []).map((m) => ech(m.nom)).join(", ") || "aucun membre";
-      return `<span class="puce puce-equipe" style="border-left:4px solid ${a.couleur}">
-        <b>${ech(a.equipe_nom)}</b> · ${membres}</span>`;
-    }
-    return `<span class="puce">${ech(a.technicien_nom)}</span>`;
+    const parts = [];
+    if (a.titulaire) parts.push(`${ech(a.titulaire)}`);
+    if (a.backup) parts.push(`<span class="bk">Back-up : ${ech(a.backup)}</span>`);
+    const contenu = parts.length ? parts.join(" · ") : "poste non pourvu";
+    return `<span class="puce puce-equipe" style="border-left:4px solid ${a.couleur}">
+      <b>${ech(a.equipe_nom)}</b> · ${contenu}</span>`;
   }).join("");
   el.innerHTML = `<div class="bandeau-astreinte">
     <div><div class="etiq">Astreinte du jour</div>
@@ -358,13 +358,13 @@ async function changerMonStatut(statut) {
 }
 
 /* =====================================================================
-   PLANNING — vue mensuelle, une colonne par équipe
+   PLANNING — vue mensuelle, une colonne par équipe (+ Back-up éventuel)
 ===================================================================== */
-let _moisCourant = null;      // Date positionnée au 1er du mois affiché
+let _moisCourant = null;
 let _equipesPlanning = [];
+let _gardeCtx = null;   // { equipe, jour, slot }
 
 function isoDate(d) {
-  // Date locale au format YYYY-MM-DD (évite le décalage UTC de toISOString).
   const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), j = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${j}`;
 }
@@ -372,6 +372,7 @@ function premierDuMois(d) { return new Date(d.getFullYear(), d.getMonth(), 1); }
 function nbJoursMois(d) { return new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate(); }
 
 async function demarrerPlanning() {
+  brancherFermetures();
   horloge(); setInterval(horloge, 1000);
   _moisCourant = premierDuMois(new Date());
   try { _equipesPlanning = await api("/api/equipes"); } catch (e) {}
@@ -391,16 +392,12 @@ async function rendrePlanning() {
 
   const debut = isoDate(new Date(an, mo, 1));
   const fin = isoDate(new Date(an, mo, nb));
-  let astreintes = [];
-  try { astreintes = await api(`/api/astreintes?debut=${debut}&fin=${fin}`); } catch (e) {}
+  let gardes = [];
+  try { gardes = await api(`/api/gardes?debut=${debut}&fin=${fin}`); } catch (e) {}
 
-  // Ensemble des couples "equipeId|jour" couverts (les plages sont dépliées jour par jour).
-  const couvert = new Set();
-  astreintes.forEach((a) => {
-    if (a.type !== "equipe") return;
-    const d1 = new Date(a.date_debut + "T00:00:00"), d2 = new Date(a.date_fin + "T00:00:00");
-    for (let d = new Date(d1); d <= d2; d.setDate(d.getDate() + 1)) couvert.add(a.equipe_id + "|" + isoDate(d));
-  });
+  // index : "equipeId|jour|slot" -> nom du technicien
+  const idx = {};
+  gardes.forEach((g) => { idx[g.equipe_id + "|" + g.jour + "|" + g.slot] = g.technicien_nom; });
 
   const estAdmin = window.MON_ROLE === "admin";
   const equipes = _equipesPlanning;
@@ -414,13 +411,23 @@ async function rendrePlanning() {
     return;
   }
   info.innerHTML = estAdmin
-    ? `<div class="planning-aide">Cliquez une case pour mettre une équipe d'astreinte ce jour-là, ou la retirer.</div>`
+    ? `<div class="planning-aide">Cliquez une case pour choisir le technicien d'astreinte (titulaire ou back-up).</div>`
     : "";
 
-  const auj = isoDate(new Date());
-  const head = `<tr><th class="coin">Jour</th>` +
-    equipes.map((e) => `<th class="col-eq" style="border-top:3px solid ${e.couleur}">${ech(e.nom)}</th>`).join("") + `</tr>`;
+  // Deux lignes d'en-tête : équipes, puis sous-postes pour les équipes en double colonne.
+  let h1 = `<tr><th class="coin" rowspan="2">Jour</th>`;
+  let h2 = `<tr>`;
+  equipes.forEach((e) => {
+    if (e.deux_colonnes) {
+      h1 += `<th class="col-eq" colspan="2" style="border-top:3px solid ${e.couleur}">${ech(e.nom)}</th>`;
+      h2 += `<th class="sous">Titulaire</th><th class="sous back">Back-up</th>`;
+    } else {
+      h1 += `<th class="col-eq" rowspan="2" style="border-top:3px solid ${e.couleur}">${ech(e.nom)}</th>`;
+    }
+  });
+  h1 += `</tr>`; h2 += `</tr>`;
 
+  const auj = isoDate(new Date());
   let body = "";
   for (let j = 1; j <= nb; j++) {
     const dt = new Date(an, mo, j);
@@ -430,22 +437,59 @@ async function rendrePlanning() {
     const nomJour = dt.toLocaleDateString("fr-FR", { weekday: "short" });
     let tds = "";
     equipes.forEach((e) => {
-      const on = couvert.has(e.id + "|" + ds);
-      const style = on ? `style="background:${e.couleur}"` : "";
-      const cls = "cell" + (on ? " on" : "") + (estAdmin ? " editable" : "");
-      const clic = estAdmin ? `onclick="basculerCase(${e.id},'${ds}')"` : "";
-      tds += `<td class="${cls}" ${style} ${clic} title="${ech(e.nom)} · ${ds}">${on ? "✓" : ""}</td>`;
+      const slots = e.deux_colonnes ? ["titulaire", "backup"] : ["titulaire"];
+      slots.forEach((slot) => {
+        const nom = idx[e.id + "|" + ds + "|" + slot];
+        const rempli = nom
+          ? `<span class="pt-nom" style="background:${e.couleur}">${ech(nom)}</span>`
+          : (estAdmin ? `<span class="pt-vide">+</span>` : "");
+        const clic = estAdmin ? `onclick="ouvrirGarde(${e.id},'${ds}','${slot}')"` : "";
+        const cls = "cell" + (estAdmin ? " editable" : "") + (slot === "backup" ? " backup" : "");
+        tds += `<td class="${cls}" ${clic}>${rempli}</td>`;
+      });
     });
     body += `<tr class="jour-row ${we ? "we" : ""} ${ds === auj ? "auj" : ""}">
       <th class="jour-cell"><span class="jnum">${j}</span> <span class="jnom">${nomJour}</span></th>${tds}</tr>`;
   }
   document.getElementById("planning-mois").innerHTML =
-    `<table class="mois-table"><thead>${head}</thead><tbody>${body}</tbody></table>`;
+    `<table class="mois-table"><thead>${h1}${h2}</thead><tbody>${body}</tbody></table>`;
 }
 
-async function basculerCase(eid, ds) {
-  try { await api("/api/astreinte/toggle", "POST", { equipe_id: eid, date: ds }); rendrePlanning(); }
-  catch (e) { alert(e.message); }
+function ouvrirGarde(eid, jour, slot) {
+  const eq = _equipesPlanning.find((e) => e.id === eid);
+  if (!eq) return;
+  _gardeCtx = { equipe: eq, jour, slot };
+  const d = new Date(jour + "T00:00:00");
+  const libSlot = slot === "backup" ? "Back-up" : "Titulaire";
+  document.getElementById("garde-titre").textContent =
+    `${eq.nom} · ${libSlot}`;
+  document.getElementById("garde-sous").textContent =
+    d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+
+  const liste = document.getElementById("garde-membres");
+  if (!eq.membres.length) {
+    liste.innerHTML = `<div class="vide">Cette équipe n'a aucun technicien. Ajoutez-en dans l'onglet Administration.</div>`;
+  } else {
+    liste.innerHTML = eq.membres.map((m) =>
+      `<button class="btn choix-tech" onclick="definirGarde(${m.id})">${ech(m.nom)}</button>`).join("");
+  }
+  ouvrir("modale-garde");
+}
+
+async function definirGarde(techId) {
+  const c = _gardeCtx;
+  try {
+    await api("/api/garde", "POST", { equipe_id: c.equipe.id, jour: c.jour, slot: c.slot, technicien_id: techId });
+    fermer("modale-garde"); rendrePlanning();
+  } catch (e) { alert(e.message); }
+}
+
+async function retirerGarde() {
+  const c = _gardeCtx;
+  try {
+    await api("/api/garde", "POST", { equipe_id: c.equipe.id, jour: c.jour, slot: c.slot, technicien_id: null });
+    fermer("modale-garde"); rendrePlanning();
+  } catch (e) { alert(e.message); }
 }
 
 
@@ -486,9 +530,10 @@ async function chargerEquipes() {
     const membres = e.membres.length
       ? e.membres.map((m) => `<span class="membre-puce">${ech(m.nom)}</span>`).join("")
       : `<span style="color:var(--ardoise-clair);font-size:13px">Aucun technicien</span>`;
+    const badge = e.deux_colonnes ? `<span class="eq-badge">Titulaire + Back-up</span>` : "";
     return `<div class="carte-equipe" style="border-left:5px solid ${e.couleur}">
       <div class="eq-tete">
-        <div class="eq-nom">${ech(e.nom)}</div>
+        <div class="eq-nom">${ech(e.nom)} ${badge}</div>
         <div class="eq-actions">
           <button class="btn" onclick="ouvrirEditionEquipe(${e.id})">Modifier</button>
           <button class="btn danger" onclick="supprimerEquipe(${e.id}, '${ech(e.nom).replace(/'/g, "\\'")}')">Supprimer</button>
@@ -503,6 +548,7 @@ async function ouvrirNouvelleEquipe() {
   _equipeEdit = null;
   document.getElementById("equipe-titre").textContent = "Nouvelle équipe";
   document.getElementById("e-nom").value = "";
+  document.getElementById("e-deux").checked = false;
   _couleurChoisie = COULEURS_EQUIPE[0];
   await rendreSelecteurEquipe([]);
   ouvrir("modale-equipe");
@@ -517,6 +563,7 @@ async function ouvrirEditionEquipe(id) {
   _equipeEdit = id;
   document.getElementById("equipe-titre").textContent = "Modifier l'équipe";
   document.getElementById("e-nom").value = eq.nom;
+  document.getElementById("e-deux").checked = !!eq.deux_colonnes;
   _couleurChoisie = eq.couleur;
   await rendreSelecteurEquipe(eq.membres.map((m) => m.id));
   ouvrir("modale-equipe");
@@ -548,7 +595,10 @@ async function enregistrerEquipe() {
   const nom = document.getElementById("e-nom").value.trim();
   if (!nom) { document.getElementById("e-nom").focus(); return; }
   const membres = Array.from(document.querySelectorAll("#e-membres input:checked")).map((c) => parseInt(c.value));
-  const corps = { nom, couleur: _couleurChoisie, membres };
+  const corps = {
+    nom, couleur: _couleurChoisie, membres,
+    deux_colonnes: document.getElementById("e-deux").checked ? 1 : 0,
+  };
   const url = _equipeEdit ? `/api/admin/equipe/${_equipeEdit}` : "/api/admin/equipe";
   try { await api(url, "POST", corps); fermer("modale-equipe"); chargerEquipes(); }
   catch (e) { alert(e.message); }

@@ -16,6 +16,26 @@
     <div id="planning-mois"></div>
   </div>
 </div>
+
+<!-- Modale : choisir le technicien de garde (admin) -->
+<div class="overlay" id="modale-garde">
+  <div class="modale">
+    <div class="tete">
+      <div>
+        <h3 id="garde-titre">Technicien d'astreinte</h3>
+        <div id="garde-sous" style="font-size:13px;color:var(--ardoise);text-transform:capitalize"></div>
+      </div>
+      <button class="fermer" data-fermer>×</button>
+    </div>
+    <div class="corps">
+      <div class="garde-choix" id="garde-membres"></div>
+    </div>
+    <div class="pied">
+      <button class="btn danger" onclick="retirerGarde()">Retirer la garde</button>
+      <button class="btn fantome" data-fermer>Fermer</button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
