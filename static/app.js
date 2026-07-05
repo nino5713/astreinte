@@ -515,13 +515,26 @@ function ouvrirGarde(eid, jour, slot) {
     liste.innerHTML = eq.membres.map((m) =>
       `<button class="btn choix-tech" onclick="definirGarde(${m.id})"><span class="pt-dot" style="background:${m.couleur || '#64748B'}"></span>${ech(m.nom)}</button>`).join("");
   }
+  setDuree(1);
   ouvrir("modale-garde");
+}
+
+function setDuree(n) {
+  const inp = document.getElementById("garde-jours");
+  if (inp) inp.value = n;
+  document.querySelectorAll("#modale-garde .duree-chips .chip").forEach((c) =>
+    c.classList.toggle("actif", parseInt(c.dataset.n) === n));
+}
+
+function lireDuree() {
+  const v = parseInt(document.getElementById("garde-jours").value, 10);
+  return isNaN(v) || v < 1 ? 1 : Math.min(v, 62);
 }
 
 async function definirGarde(techId) {
   const c = _gardeCtx;
   try {
-    await api("/api/garde", "POST", { equipe_id: c.equipe.id, jour: c.jour, slot: c.slot, technicien_id: techId });
+    await api("/api/garde", "POST", { equipe_id: c.equipe.id, jour: c.jour, slot: c.slot, technicien_id: techId, jours: lireDuree() });
     fermer("modale-garde"); rendrePlanning();
   } catch (e) { alert(e.message); }
 }
@@ -529,7 +542,7 @@ async function definirGarde(techId) {
 async function retirerGarde() {
   const c = _gardeCtx;
   try {
-    await api("/api/garde", "POST", { equipe_id: c.equipe.id, jour: c.jour, slot: c.slot, technicien_id: null });
+    await api("/api/garde", "POST", { equipe_id: c.equipe.id, jour: c.jour, slot: c.slot, technicien_id: null, jours: lireDuree() });
     fermer("modale-garde"); rendrePlanning();
   } catch (e) { alert(e.message); }
 }

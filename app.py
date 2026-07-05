@@ -844,8 +844,9 @@ def api_gardes():
 @app.route("/api/garde", methods=["POST"])
 @admin_requis
 def api_definir_garde():
-    """Affecte (ou retire) un technicien à une équipe pour un jour + un poste.
-    technicien_id absent/null => on retire l'affectation de ce poste."""
+    """Affecte (ou retire) un technicien à une équipe pour un poste, sur un ou
+    plusieurs jours consécutifs à partir de 'jour'. technicien_id absent/null
+    => on retire l'affectation de ce poste sur la période."""
     db = get_db()
     data = request.get_json(force=True)
     eid = data.get("equipe_id")
@@ -856,13 +857,24 @@ def api_definir_garde():
         return jsonify({"erreur": "Équipe et jour requis."}), 400
     if slot not in ("titulaire", "backup"):
         return jsonify({"erreur": "Poste invalide."}), 400
+    try:
+        base = datetime.strptime(jour, "%Y-%m-%d").date()
+    except ValueError:
+        return jsonify({"erreur": "Date invalide."}), 400
+    try:
+        nb = max(1, min(int(data.get("jours") or 1), 62))
+    except (TypeError, ValueError):
+        nb = 1
     if not db.execute("SELECT 1 FROM equipes WHERE id = ?", (eid,)).fetchone():
         abort(404)
 
+    jours = [(base + timedelta(days=k)).isoformat() for k in range(nb)]
+
     if not tech_id:
-        db.execute("DELETE FROM gardes WHERE equipe_id = ? AND jour = ? AND slot = ?", (eid, jour, slot))
+        for j in jours:
+            db.execute("DELETE FROM gardes WHERE equipe_id = ? AND jour = ? AND slot = ?", (eid, j, slot))
         db.commit()
-        return jsonify({"ok": True, "vide": True})
+        return jsonify({"ok": True, "vide": True, "jours": nb})
 
     # Le technicien doit appartenir à l'équipe.
     membre = db.execute(
@@ -871,14 +883,14 @@ def api_definir_garde():
     if not membre:
         return jsonify({"erreur": "Ce technicien ne fait pas partie de l'équipe."}), 400
 
-    # Upsert sur (equipe, jour, slot).
-    db.execute(
-        """INSERT INTO gardes (equipe_id, technicien_id, jour, slot) VALUES (?,?,?,?)
-           ON CONFLICT(equipe_id, jour, slot) DO UPDATE SET technicien_id = excluded.technicien_id""",
-        (eid, tech_id, jour, slot),
-    )
+    for j in jours:
+        db.execute(
+            """INSERT INTO gardes (equipe_id, technicien_id, jour, slot) VALUES (?,?,?,?)
+               ON CONFLICT(equipe_id, jour, slot) DO UPDATE SET technicien_id = excluded.technicien_id""",
+            (eid, tech_id, j, slot),
+        )
     db.commit()
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "jours": nb})
 
 
 @app.route("/api/equipes")

@@ -432,6 +432,15 @@ a { color: inherit; }
 /* Modale de choix du technicien de garde */
 .garde-choix { display: grid; gap: 8px; }
 .choix-tech { justify-content: flex-start; text-align: left; }
+.garde-duree { margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--bordure); }
+.garde-duree > label { display: block; font-size: 13px; font-weight: 600; color: var(--ardoise); margin-bottom: 8px; }
+.duree-ligne { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.duree-ligne input[type="number"] { width: 68px; padding: 8px 10px; font-size: 15px; font-weight: 700;
+  text-align: center; border: 1px solid var(--bordure); border-radius: 8px; }
+.duree-chips { display: flex; gap: 6px; }
+.duree-chips .chip { padding: 7px 12px; font-size: 13px; font-weight: 600; cursor: pointer;
+  background: var(--fond); border: 1px solid var(--bordure); border-radius: 8px; color: var(--ardoise); }
+.duree-chips .chip.actif { background: var(--socom); border-color: var(--socom); color: #fff; }
 .eq-badge { font-size: 10.5px; font-weight: 700; color: var(--depann); background: var(--depann-bg);
   padding: 2px 8px; border-radius: 6px; text-transform: uppercase; letter-spacing: .03em; vertical-align: middle; }
 .case-option { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; font-weight: 400 !important; }

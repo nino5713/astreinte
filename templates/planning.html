@@ -35,6 +35,18 @@
       <button class="fermer" data-fermer>×</button>
     </div>
     <div class="corps">
+      <div class="garde-duree">
+        <label>Nombre de jours consécutifs (à partir du jour choisi)</label>
+        <div class="duree-ligne">
+          <input type="number" id="garde-jours" min="1" max="62" value="1">
+          <div class="duree-chips">
+            <button type="button" class="chip" data-n="1" onclick="setDuree(1)">1 j</button>
+            <button type="button" class="chip" data-n="2" onclick="setDuree(2)">2 j</button>
+            <button type="button" class="chip" data-n="3" onclick="setDuree(3)">3 j</button>
+            <button type="button" class="chip" data-n="7" onclick="setDuree(7)">7 j</button>
+          </div>
+        </div>
+      </div>
       <div class="garde-choix" id="garde-membres"></div>
     </div>
     <div class="pied">
