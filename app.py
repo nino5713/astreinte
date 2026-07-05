@@ -94,8 +94,22 @@ def init_db():
             date_fin TEXT NOT NULL,     -- date ISO (jour), incluse
             libelle TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS equipes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nom TEXT NOT NULL,
+            couleur TEXT NOT NULL DEFAULT '#1E3A8A',
+            actif INTEGER NOT NULL DEFAULT 1
+        );
+
+        CREATE TABLE IF NOT EXISTS equipe_membres (
+            equipe_id INTEGER NOT NULL REFERENCES equipes(id) ON DELETE CASCADE,
+            technicien_id INTEGER NOT NULL REFERENCES techniciens(id) ON DELETE CASCADE,
+            PRIMARY KEY (equipe_id, technicien_id)
+        );
         """
     )
+    _migration_astreintes_equipes(db)
     # Jeu de données initial (uniquement si vide)
     n = db.execute("SELECT COUNT(*) AS c FROM techniciens").fetchone()["c"]
     if n == 0:
@@ -118,6 +132,31 @@ def init_db():
 # --------------------------------------------------------------------------
 # Utilitaires temps / compteur horaire
 # --------------------------------------------------------------------------
+def _migration_astreintes_equipes(db):
+    """Ajoute equipe_id à astreintes et rend technicien_id nullable.
+    Idempotent : ne s'exécute que si la colonne equipe_id est absente."""
+    cols = [r[1] for r in db.execute("PRAGMA table_info(astreintes)").fetchall()]
+    if "equipe_id" in cols:
+        return
+    db.executescript(
+        """
+        CREATE TABLE astreintes_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            equipe_id INTEGER REFERENCES equipes(id),
+            technicien_id INTEGER REFERENCES techniciens(id),
+            date_debut TEXT NOT NULL,
+            date_fin TEXT NOT NULL,
+            libelle TEXT
+        );
+        INSERT INTO astreintes_new (id, technicien_id, date_debut, date_fin, libelle)
+            SELECT id, technicien_id, date_debut, date_fin, libelle FROM astreintes;
+        DROP TABLE astreintes;
+        ALTER TABLE astreintes_new RENAME TO astreintes;
+        """
+    )
+    db.commit()
+
+
 def now_tz():
     return datetime.now(TZ)
 
@@ -514,21 +553,16 @@ def api_etat():
         (iso(now_tz() - timedelta(hours=12)),),
     ).fetchall()
 
-    # Astreinte du jour
+    # Astreinte du jour (équipes + éventuels techniciens individuels hérités)
     aujourdhui = now_tz().date().isoformat()
-    astreinte = db.execute(
-        """SELECT a.*, t.nom AS technicien_nom FROM astreintes a
-           JOIN techniciens t ON a.technicien_id = t.id
-           WHERE a.date_debut <= ? AND a.date_fin >= ? ORDER BY t.nom""",
-        (aujourdhui, aujourdhui),
-    ).fetchall()
+    astreinte = astreintes_resolues(db, aujourdhui, aujourdhui)
 
     return jsonify({
         "maintenant": iso(now_tz()),
         "utilisateur": {"id": u["id"], "nom": u["nom"], "role": u["role"]},
         "techniciens": techs_out,
         "depannages": [serialise_depannage(d) for d in deps],
-        "astreinte_jour": [dict(a) for a in astreinte],
+        "astreinte_jour": astreinte,
         "plafonds": {
             "max_jour": MAX_H_JOUR, "max_semaine": MAX_H_SEMAINE,
             "alerte_jour": ALERTE_H_JOUR, "alerte_semaine": ALERTE_H_SEMAINE,
@@ -692,50 +726,169 @@ def api_statut_tech(tid):
 
 
 # --------------------------------------------------------------------------
-# API — planning d'astreinte
+# API — planning d'astreinte (lecture : tous ; édition : admin uniquement)
 # --------------------------------------------------------------------------
+def astreintes_resolues(db, debut, fin):
+    """Renvoie les astreintes chevauchant [debut, fin], chaque entrée résolue
+    avec son équipe + membres, ou son technicien (cas hérité)."""
+    rows = db.execute(
+        """SELECT a.id, a.equipe_id, a.technicien_id, a.date_debut, a.date_fin, a.libelle,
+                  e.nom AS equipe_nom, e.couleur AS equipe_couleur,
+                  t.nom AS technicien_nom
+           FROM astreintes a
+           LEFT JOIN equipes e ON a.equipe_id = e.id
+           LEFT JOIN techniciens t ON a.technicien_id = t.id
+           WHERE a.date_fin >= ? AND a.date_debut <= ?
+           ORDER BY a.date_debut, e.nom, t.nom""",
+        (debut, fin),
+    ).fetchall()
+    out = []
+    for r in rows:
+        entry = {
+            "id": r["id"], "date_debut": r["date_debut"], "date_fin": r["date_fin"],
+            "libelle": r["libelle"],
+        }
+        if r["equipe_id"]:
+            membres = db.execute(
+                """SELECT t.id, t.nom FROM equipe_membres m
+                   JOIN techniciens t ON m.technicien_id = t.id
+                   WHERE m.equipe_id = ? AND t.actif = 1 ORDER BY t.nom""",
+                (r["equipe_id"],),
+            ).fetchall()
+            entry.update({
+                "type": "equipe", "equipe_id": r["equipe_id"],
+                "equipe_nom": r["equipe_nom"], "couleur": r["equipe_couleur"],
+                "membres": [dict(m) for m in membres],
+            })
+        else:
+            entry.update({
+                "type": "technicien", "technicien_id": r["technicien_id"],
+                "technicien_nom": r["technicien_nom"], "couleur": "#1E3A8A",
+            })
+        out.append(entry)
+    return out
+
+
 @app.route("/api/astreintes")
 @login_requis
 def api_liste_astreintes():
     db = get_db()
     debut = request.args.get("debut")
     fin = request.args.get("fin")
-    q = ("""SELECT a.*, t.nom AS technicien_nom FROM astreintes a
-            JOIN techniciens t ON a.technicien_id = t.id""")
-    params = []
-    if debut and fin:
-        q += " WHERE a.date_fin >= ? AND a.date_debut <= ?"
-        params = [debut, fin]
-    q += " ORDER BY a.date_debut, t.nom"
-    rows = db.execute(q, params).fetchall()
-    return jsonify([dict(r) for r in rows])
+    if not (debut and fin):
+        # bornes larges par défaut
+        debut, fin = "0000-01-01", "9999-12-31"
+    return jsonify(astreintes_resolues(db, debut, fin))
 
 
 @app.route("/api/astreinte", methods=["POST"])
-@dispatcher_requis
+@admin_requis
 def api_creer_astreinte():
     db = get_db()
     data = request.get_json(force=True)
+    equipe_id = data.get("equipe_id")
     tech_id = data.get("technicien_id")
     d1 = data.get("date_debut")
     d2 = data.get("date_fin") or d1
-    if not (tech_id and d1):
-        return jsonify({"erreur": "Technicien et date requis."}), 400
+    if not d1:
+        return jsonify({"erreur": "Date requise."}), 400
+    if not (equipe_id or tech_id):
+        return jsonify({"erreur": "Choisissez une équipe."}), 400
     if d2 < d1:
         d1, d2 = d2, d1
     cur = db.execute(
-        "INSERT INTO astreintes (technicien_id, date_debut, date_fin, libelle) VALUES (?,?,?,?)",
-        (tech_id, d1, d2, data.get("libelle", "")),
+        "INSERT INTO astreintes (equipe_id, technicien_id, date_debut, date_fin, libelle) VALUES (?,?,?,?,?)",
+        (equipe_id, tech_id if not equipe_id else None, d1, d2, data.get("libelle", "")),
     )
     db.commit()
     return jsonify({"ok": True, "id": cur.lastrowid})
 
 
 @app.route("/api/astreinte/<int:aid>", methods=["DELETE"])
-@dispatcher_requis
+@admin_requis
 def api_suppr_astreinte(aid):
     db = get_db()
     db.execute("DELETE FROM astreintes WHERE id = ?", (aid,))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+# --------------------------------------------------------------------------
+# API — équipes (réservé admin)
+# --------------------------------------------------------------------------
+def _membres_equipe(db, eid):
+    rows = db.execute(
+        """SELECT t.id, t.nom FROM equipe_membres m
+           JOIN techniciens t ON m.technicien_id = t.id
+           WHERE m.equipe_id = ? ORDER BY t.nom""",
+        (eid,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.route("/api/admin/equipes")
+@admin_requis
+def api_equipes():
+    db = get_db()
+    equipes = db.execute(
+        "SELECT id, nom, couleur, actif FROM equipes ORDER BY actif DESC, nom"
+    ).fetchall()
+    out = []
+    for e in equipes:
+        d = dict(e)
+        d["membres"] = _membres_equipe(db, e["id"])
+        out.append(d)
+    return jsonify(out)
+
+
+@app.route("/api/admin/equipe", methods=["POST"])
+@admin_requis
+def api_creer_equipe():
+    db = get_db()
+    data = request.get_json(force=True)
+    nom = (data.get("nom") or "").strip()
+    couleur = data.get("couleur") or "#1E3A8A"
+    membres = data.get("membres") or []
+    if not nom:
+        return jsonify({"erreur": "Le nom de l'équipe est obligatoire."}), 400
+    cur = db.execute("INSERT INTO equipes (nom, couleur) VALUES (?,?)", (nom, couleur))
+    eid = cur.lastrowid
+    for tid in membres:
+        db.execute("INSERT OR IGNORE INTO equipe_membres (equipe_id, technicien_id) VALUES (?,?)", (eid, tid))
+    db.commit()
+    return jsonify({"ok": True, "id": eid})
+
+
+@app.route("/api/admin/equipe/<int:eid>", methods=["POST"])
+@admin_requis
+def api_modifier_equipe(eid):
+    db = get_db()
+    if not db.execute("SELECT 1 FROM equipes WHERE id = ?", (eid,)).fetchone():
+        abort(404)
+    data = request.get_json(force=True)
+    nom = (data.get("nom") or "").strip()
+    if not nom:
+        return jsonify({"erreur": "Le nom de l'équipe est obligatoire."}), 400
+    couleur = data.get("couleur") or "#1E3A8A"
+    db.execute("UPDATE equipes SET nom = ?, couleur = ? WHERE id = ?", (nom, couleur, eid))
+    if "membres" in data:
+        db.execute("DELETE FROM equipe_membres WHERE equipe_id = ?", (eid,))
+        for tid in (data.get("membres") or []):
+            db.execute("INSERT OR IGNORE INTO equipe_membres (equipe_id, technicien_id) VALUES (?,?)", (eid, tid))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/admin/equipe/<int:eid>", methods=["DELETE"])
+@admin_requis
+def api_suppr_equipe(eid):
+    db = get_db()
+    if not db.execute("SELECT 1 FROM equipes WHERE id = ?", (eid,)).fetchone():
+        abort(404)
+    # Retire aussi les affectations de planning de cette équipe.
+    db.execute("DELETE FROM astreintes WHERE equipe_id = ?", (eid,))
+    db.execute("DELETE FROM equipe_membres WHERE equipe_id = ?", (eid,))
+    db.execute("DELETE FROM equipes WHERE id = ?", (eid,))
     db.commit()
     return jsonify({"ok": True})
 

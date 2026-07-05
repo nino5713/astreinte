@@ -57,6 +57,19 @@ compte lié à un historique (dépannages, astreintes) est désactivé plutôt
 que supprimé, pour préserver les données. Le dernier admin actif ne peut
 pas être supprimé ni rétrogradé.
 
+## Équipes et planning
+
+Sur la page **Administration**, section *Équipes d'astreinte*, l'admin
+crée des équipes (nom + couleur) regroupant un ou plusieurs techniciens.
+Une équipe peut donc mettre plusieurs techniciens d'astreinte en même
+temps.
+
+Le **planning** affecte une équipe à une période. L'astreinte du jour
+affichée sur le tableau de bord liste alors tous les membres de l'équipe
+de garde. **Seul un administrateur peut éditer le planning** : les
+techniciens et dispatchers le voient en lecture seule (pas de bouton
+d'ajout ni de suppression).
+
 ## Lancer en local
 
 ```bash

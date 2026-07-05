@@ -12,6 +12,38 @@
 
   <div id="liste-users" class="liste-users"></div>
 
+  <div class="section-titre">
+    Équipes d'astreinte <span class="compte" id="compte-equipes">0</span>
+    <span class="barre"></span>
+    <button class="btn primaire" id="btn-nouvelle-equipe">＋ Nouvelle équipe</button>
+  </div>
+  <div id="liste-equipes" class="liste-equipes"></div>
+
+</div>
+
+<!-- Modale : créer / modifier une équipe -->
+<div class="overlay" id="modale-equipe">
+  <div class="modale">
+    <div class="tete"><h3 id="equipe-titre">Nouvelle équipe</h3><button class="fermer" data-fermer>×</button></div>
+    <div class="corps">
+      <div class="champ">
+        <label>Nom de l'équipe *</label>
+        <input type="text" id="e-nom" placeholder="Ex. Équipe A — week-end">
+      </div>
+      <div class="champ">
+        <label>Couleur</label>
+        <div class="couleurs" id="e-couleurs"></div>
+      </div>
+      <div class="champ">
+        <label>Techniciens de l'équipe <small style="font-weight:400;color:var(--ardoise-clair)">(un ou plusieurs)</small></label>
+        <div class="membres-liste" id="e-membres"></div>
+      </div>
+    </div>
+    <div class="pied">
+      <button class="btn fantome" data-fermer>Annuler</button>
+      <button class="btn primaire" id="btn-enregistrer-equipe">Enregistrer</button>
+    </div>
+  </div>
 </div>
 
 <!-- Modale : créer un utilisateur -->

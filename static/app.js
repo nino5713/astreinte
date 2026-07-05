@@ -107,10 +107,17 @@ async function rafraichirDashboard() {
 
 function rendreBandeau(etat) {
   const el = document.getElementById("bandeau-astreinte");
-  const noms = etat.astreinte_jour.map((a) => `<span class="puce">${ech(a.technicien_nom)}</span>`).join("");
+  const items = (etat.astreinte_jour || []).map((a) => {
+    if (a.type === "equipe") {
+      const membres = (a.membres || []).map((m) => ech(m.nom)).join(", ") || "aucun membre";
+      return `<span class="puce puce-equipe" style="border-left:4px solid ${a.couleur}">
+        <b>${ech(a.equipe_nom)}</b> · ${membres}</span>`;
+    }
+    return `<span class="puce">${ech(a.technicien_nom)}</span>`;
+  }).join("");
   el.innerHTML = `<div class="bandeau-astreinte">
     <div><div class="etiq">Astreinte du jour</div>
-    <div class="noms">${noms || "<span style='color:#C7D2FE;font-weight:500'>Aucune astreinte planifiée aujourd'hui</span>"}</div></div>
+    <div class="noms">${items || "<span style='color:#C7D2FE;font-weight:500'>Aucune astreinte planifiée aujourd'hui</span>"}</div></div>
   </div>`;
 }
 
@@ -366,11 +373,16 @@ function lundiDe(date) {
 function isoDate(d) { return d.toISOString().slice(0, 10); }
 function ajouterJours(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
 
+let _equipesCache = [];
+
 async function demarrerPlanning() {
   brancherFermetures();
   horloge(); setInterval(horloge, 1000);
   _lundiCourant = lundiDe(new Date());
-  try { _techsCache = await api("/api/techniciens"); } catch (e) {}
+  // Seul l'admin édite le planning : il a besoin de la liste des équipes.
+  if (window.MON_ROLE === "admin") {
+    try { _equipesCache = await api("/api/admin/equipes"); } catch (e) {}
+  }
 
   document.getElementById("sem-prec").addEventListener("click", () => { _lundiCourant = ajouterJours(_lundiCourant, -7); rendrePlanning(); });
   document.getElementById("sem-suiv").addEventListener("click", () => { _lundiCourant = ajouterJours(_lundiCourant, 7); rendrePlanning(); });
@@ -391,7 +403,7 @@ async function rendrePlanning() {
   try { astreintes = await api(`/api/astreintes?debut=${debut}&fin=${fin}`); } catch (e) {}
 
   const auj = isoDate(new Date());
-  const dispatcher = window.MON_ROLE === "dispatcher";
+  const estAdmin = window.MON_ROLE === "admin";
   const g = document.getElementById("planning-grille");
   let html = "";
   for (let i = 0; i < 7; i++) {
@@ -399,13 +411,20 @@ async function rendrePlanning() {
     const ds = isoDate(jour);
     const we = (i >= 5);
     const dujour = astreintes.filter((a) => a.date_debut <= ds && a.date_fin >= ds);
-    const puces = dujour.map((a) => `<span class="puce-astreinte">${ech(a.technicien_nom)}
-        ${dispatcher ? `<button class="x" onclick="suppAstreinte(${a.id})" title="Retirer">×</button>` : ""}</span>`).join("");
+    const puces = dujour.map((a) => {
+      const x = estAdmin ? `<button class="x" onclick="suppAstreinte(${a.id})" title="Retirer">×</button>` : "";
+      if (a.type === "equipe") {
+        const membres = (a.membres || []).map((m) => ech(m.nom)).join(", ") || "aucun membre";
+        return `<span class="puce-astreinte puce-eq" style="border-left:4px solid ${a.couleur}">
+          <span><b>${ech(a.equipe_nom)}</b><small>${membres}</small></span>${x}</span>`;
+      }
+      return `<span class="puce-astreinte">${ech(a.technicien_nom)}${x}</span>`;
+    }).join("");
     html += `<div class="jour-ligne ${we ? "we" : ""} ${ds === auj ? "aujourdhui" : ""}">
       <div class="date">${jour.getDate()}<small>${jour.toLocaleDateString("fr-FR", { weekday: "long" })}</small></div>
       <div class="affectations">
         ${puces || `<span style="color:var(--ardoise-clair);font-size:13px">Personne</span>`}
-        ${dispatcher ? `<button class="btn fantome" style="padding:4px 10px" onclick="ouvrirAstreinte('${ds}')">＋</button>` : ""}
+        ${estAdmin ? `<button class="btn fantome" style="padding:4px 10px" onclick="ouvrirAstreinte('${ds}')">＋</button>` : ""}
       </div>
     </div>`;
   }
@@ -414,8 +433,14 @@ async function rendrePlanning() {
 
 function ouvrirAstreinte(ds) {
   _jourCible = ds;
-  const sel = document.getElementById("p-tech");
-  sel.innerHTML = _techsCache.map((t) => `<option value="${t.id}">${ech(t.nom)}</option>`).join("");
+  const sel = document.getElementById("p-equipe");
+  if (!_equipesCache.length) {
+    alert("Aucune équipe. Créez d'abord une équipe dans l'onglet Administration.");
+    return;
+  }
+  sel.innerHTML = _equipesCache
+    .filter((e) => e.actif)
+    .map((e) => `<option value="${e.id}">${ech(e.nom)} (${e.membres.length} tech.)</option>`).join("");
   document.getElementById("p-debut").value = ds;
   document.getElementById("p-fin").value = ds;
   document.getElementById("p-libelle").value = "";
@@ -424,12 +449,12 @@ function ouvrirAstreinte(ds) {
 
 async function creerAstreinte() {
   const corps = {
-    technicien_id: document.getElementById("p-tech").value,
+    equipe_id: document.getElementById("p-equipe").value,
     date_debut: document.getElementById("p-debut").value,
     date_fin: document.getElementById("p-fin").value,
     libelle: document.getElementById("p-libelle").value.trim(),
   };
-  if (!corps.technicien_id || !corps.date_debut) return;
+  if (!corps.equipe_id || !corps.date_debut) return;
   try { await api("/api/astreinte", "POST", corps); fermer("modale-astreinte"); rendrePlanning(); }
   catch (e) { alert(e.message); }
 }
@@ -453,7 +478,102 @@ function demarrerAdmin() {
   document.getElementById("btn-creer-user").addEventListener("click", creerUser);
   document.getElementById("btn-confirmer-pin").addEventListener("click", confirmerPin);
   document.querySelectorAll('#u-role input').forEach((r) => r.addEventListener("change", majAideRole));
+  document.getElementById("btn-nouvelle-equipe").addEventListener("click", ouvrirNouvelleEquipe);
+  document.getElementById("btn-enregistrer-equipe").addEventListener("click", enregistrerEquipe);
   chargerUsers();
+  chargerEquipes();
+}
+
+const COULEURS_EQUIPE = ["#1E3A8A", "#16A34A", "#EA580C", "#DC2626", "#7C3AED", "#0891B2", "#CA8A04", "#DB2777"];
+let _equipeEdit = null;      // id en cours d'édition, ou null pour création
+let _techsDispo = [];        // techniciens sélectionnables
+let _couleurChoisie = COULEURS_EQUIPE[0];
+
+async function chargerEquipes() {
+  let equipes = [];
+  try { equipes = await api("/api/admin/equipes"); } catch (e) { return; }
+  document.getElementById("compte-equipes").textContent = equipes.length;
+  const l = document.getElementById("liste-equipes");
+  if (!equipes.length) {
+    l.innerHTML = `<div class="vide">Aucune équipe. Créez-en une pour pouvoir l'affecter au planning.</div>`;
+    return;
+  }
+  l.innerHTML = equipes.map((e) => {
+    const membres = e.membres.length
+      ? e.membres.map((m) => `<span class="membre-puce">${ech(m.nom)}</span>`).join("")
+      : `<span style="color:var(--ardoise-clair);font-size:13px">Aucun technicien</span>`;
+    return `<div class="carte-equipe" style="border-left:5px solid ${e.couleur}">
+      <div class="eq-tete">
+        <div class="eq-nom">${ech(e.nom)}</div>
+        <div class="eq-actions">
+          <button class="btn" onclick="ouvrirEditionEquipe(${e.id})">Modifier</button>
+          <button class="btn danger" onclick="supprimerEquipe(${e.id}, '${ech(e.nom).replace(/'/g, "\\'")}')">Supprimer</button>
+        </div>
+      </div>
+      <div class="eq-membres">${membres}</div>
+    </div>`;
+  }).join("");
+}
+
+async function ouvrirNouvelleEquipe() {
+  _equipeEdit = null;
+  document.getElementById("equipe-titre").textContent = "Nouvelle équipe";
+  document.getElementById("e-nom").value = "";
+  _couleurChoisie = COULEURS_EQUIPE[0];
+  await rendreSelecteurEquipe([]);
+  ouvrir("modale-equipe");
+  document.getElementById("e-nom").focus();
+}
+
+async function ouvrirEditionEquipe(id) {
+  let equipes = [];
+  try { equipes = await api("/api/admin/equipes"); } catch (e) { return; }
+  const eq = equipes.find((x) => x.id === id);
+  if (!eq) return;
+  _equipeEdit = id;
+  document.getElementById("equipe-titre").textContent = "Modifier l'équipe";
+  document.getElementById("e-nom").value = eq.nom;
+  _couleurChoisie = eq.couleur;
+  await rendreSelecteurEquipe(eq.membres.map((m) => m.id));
+  ouvrir("modale-equipe");
+}
+
+async function rendreSelecteurEquipe(idsSelectionnes) {
+  // pastilles de couleur
+  document.getElementById("e-couleurs").innerHTML = COULEURS_EQUIPE.map((c) =>
+    `<button type="button" class="pastille-couleur ${c === _couleurChoisie ? "actif" : ""}"
+      style="background:${c}" data-couleur="${c}" onclick="choisirCouleur('${c}')"></button>`).join("");
+  // liste des techniciens (cases à cocher)
+  try { _techsDispo = await api("/api/techniciens"); } catch (e) { _techsDispo = []; }
+  const set = new Set(idsSelectionnes);
+  document.getElementById("e-membres").innerHTML = _techsDispo.length
+    ? _techsDispo.map((t) => `<label class="membre-choix">
+        <input type="checkbox" value="${t.id}" ${set.has(t.id) ? "checked" : ""}>
+        <span>${ech(t.nom)}</span></label>`).join("")
+    : `<span style="color:var(--ardoise-clair);font-size:13px">Aucun technicien. Créez d'abord des utilisateurs de rôle technicien.</span>`;
+}
+
+function choisirCouleur(c) {
+  _couleurChoisie = c;
+  document.querySelectorAll("#e-couleurs .pastille-couleur").forEach((b) => {
+    b.classList.toggle("actif", b.dataset.couleur === c);
+  });
+}
+
+async function enregistrerEquipe() {
+  const nom = document.getElementById("e-nom").value.trim();
+  if (!nom) { document.getElementById("e-nom").focus(); return; }
+  const membres = Array.from(document.querySelectorAll("#e-membres input:checked")).map((c) => parseInt(c.value));
+  const corps = { nom, couleur: _couleurChoisie, membres };
+  const url = _equipeEdit ? `/api/admin/equipe/${_equipeEdit}` : "/api/admin/equipe";
+  try { await api(url, "POST", corps); fermer("modale-equipe"); chargerEquipes(); }
+  catch (e) { alert(e.message); }
+}
+
+async function supprimerEquipe(id, nom) {
+  if (!confirm(`Supprimer l'équipe « ${nom} » ? Ses affectations de planning seront aussi retirées.`)) return;
+  try { await api(`/api/admin/equipe/${id}`, "DELETE"); chargerEquipes(); }
+  catch (e) { alert(e.message); }
 }
 
 async function chargerUsers() {

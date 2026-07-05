@@ -233,6 +233,28 @@ a { color: inherit; }
   .carte-user .u-actions .btn { flex: 1; }
 }
 
+/* ---------- Équipes ---------- */
+.liste-equipes { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.carte-equipe { background: var(--carte); border: 1px solid var(--bordure); border-radius: var(--r);
+  padding: 14px 16px; box-shadow: var(--ombre); }
+.carte-equipe .eq-tete { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.carte-equipe .eq-nom { font-weight: 700; font-size: 15.5px; }
+.carte-equipe .eq-actions { display: flex; gap: 6px; }
+.carte-equipe .eq-membres { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.membre-puce { font-size: 12.5px; background: var(--fond); color: var(--encre);
+  padding: 3px 10px; border-radius: 999px; }
+.membres-liste { display: grid; gap: 4px; max-height: 240px; overflow-y: auto;
+  border: 1px solid var(--bordure); border-radius: 9px; padding: 8px; }
+.membre-choix { display: flex; align-items: center; gap: 9px; padding: 7px 8px; border-radius: 7px; cursor: pointer; }
+.membre-choix:hover { background: var(--fond); }
+.membre-choix input { width: 17px; height: 17px; accent-color: var(--socom); }
+.couleurs { display: flex; gap: 8px; flex-wrap: wrap; }
+.pastille-couleur { width: 30px; height: 30px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0; }
+.pastille-couleur.actif { border-color: var(--encre); box-shadow: 0 0 0 2px #fff inset; }
+.puce-equipe { display: inline-flex; flex-direction: column; align-items: flex-start; line-height: 1.3; }
+.puce-eq { display: inline-flex; align-items: center; }
+.puce-eq span small { display: block; color: var(--ardoise); font-size: 11.5px; }
+
 /* ---------- Bandeau astreinte du jour ---------- */
 .bandeau-astreinte {
   background: linear-gradient(120deg, var(--socom), var(--socom-fonce));
