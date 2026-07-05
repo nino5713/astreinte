@@ -358,112 +358,96 @@ async function changerMonStatut(statut) {
 }
 
 /* =====================================================================
-   PLANNING
+   PLANNING — vue mensuelle, une colonne par équipe
 ===================================================================== */
-let _lundiCourant = null;
-let _techsCache = [];
-let _jourCible = null;
+let _moisCourant = null;      // Date positionnée au 1er du mois affiché
+let _equipesPlanning = [];
 
-function lundiDe(date) {
-  const d = new Date(date);
-  const j = (d.getDay() + 6) % 7; // 0 = lundi
-  d.setDate(d.getDate() - j); d.setHours(0, 0, 0, 0);
-  return d;
+function isoDate(d) {
+  // Date locale au format YYYY-MM-DD (évite le décalage UTC de toISOString).
+  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), j = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${j}`;
 }
-function isoDate(d) { return d.toISOString().slice(0, 10); }
-function ajouterJours(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
-
-let _equipesCache = [];
+function premierDuMois(d) { return new Date(d.getFullYear(), d.getMonth(), 1); }
+function nbJoursMois(d) { return new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate(); }
 
 async function demarrerPlanning() {
-  brancherFermetures();
   horloge(); setInterval(horloge, 1000);
-  _lundiCourant = lundiDe(new Date());
-  // Seul l'admin édite le planning : il a besoin de la liste des équipes.
-  if (window.MON_ROLE === "admin") {
-    try { _equipesCache = await api("/api/admin/equipes"); } catch (e) {}
-  }
+  _moisCourant = premierDuMois(new Date());
+  try { _equipesPlanning = await api("/api/equipes"); } catch (e) {}
 
-  document.getElementById("sem-prec").addEventListener("click", () => { _lundiCourant = ajouterJours(_lundiCourant, -7); rendrePlanning(); });
-  document.getElementById("sem-suiv").addEventListener("click", () => { _lundiCourant = ajouterJours(_lundiCourant, 7); rendrePlanning(); });
-  document.getElementById("sem-auj").addEventListener("click", () => { _lundiCourant = lundiDe(new Date()); rendrePlanning(); });
-  const btnCreer = document.getElementById("btn-creer-astreinte");
-  if (btnCreer) btnCreer.addEventListener("click", creerAstreinte);
+  document.getElementById("mois-prec").addEventListener("click", () => { _moisCourant = new Date(_moisCourant.getFullYear(), _moisCourant.getMonth() - 1, 1); rendrePlanning(); });
+  document.getElementById("mois-suiv").addEventListener("click", () => { _moisCourant = new Date(_moisCourant.getFullYear(), _moisCourant.getMonth() + 1, 1); rendrePlanning(); });
+  document.getElementById("mois-auj").addEventListener("click", () => { _moisCourant = premierDuMois(new Date()); rendrePlanning(); });
 
   rendrePlanning();
 }
 
 async function rendrePlanning() {
-  const debut = isoDate(_lundiCourant);
-  const fin = isoDate(ajouterJours(_lundiCourant, 6));
-  document.getElementById("sem-titre").textContent =
-    `${_lundiCourant.toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} – ${ajouterJours(_lundiCourant, 6).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}`;
+  const an = _moisCourant.getFullYear(), mo = _moisCourant.getMonth();
+  const nb = nbJoursMois(_moisCourant);
+  document.getElementById("mois-titre").textContent =
+    _moisCourant.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
 
+  const debut = isoDate(new Date(an, mo, 1));
+  const fin = isoDate(new Date(an, mo, nb));
   let astreintes = [];
   try { astreintes = await api(`/api/astreintes?debut=${debut}&fin=${fin}`); } catch (e) {}
 
-  const auj = isoDate(new Date());
-  const estAdmin = window.MON_ROLE === "admin";
-  const g = document.getElementById("planning-grille");
-  let html = "";
-  for (let i = 0; i < 7; i++) {
-    const jour = ajouterJours(_lundiCourant, i);
-    const ds = isoDate(jour);
-    const we = (i >= 5);
-    const dujour = astreintes.filter((a) => a.date_debut <= ds && a.date_fin >= ds);
-    const puces = dujour.map((a) => {
-      const x = estAdmin ? `<button class="x" onclick="suppAstreinte(${a.id})" title="Retirer">×</button>` : "";
-      if (a.type === "equipe") {
-        const membres = (a.membres || []).map((m) => ech(m.nom)).join(", ") || "aucun membre";
-        return `<span class="puce-astreinte puce-eq" style="border-left:4px solid ${a.couleur}">
-          <span><b>${ech(a.equipe_nom)}</b><small>${membres}</small></span>${x}</span>`;
-      }
-      return `<span class="puce-astreinte">${ech(a.technicien_nom)}${x}</span>`;
-    }).join("");
-    html += `<div class="jour-ligne ${we ? "we" : ""} ${ds === auj ? "aujourdhui" : ""}">
-      <div class="date">${jour.getDate()}<small>${jour.toLocaleDateString("fr-FR", { weekday: "long" })}</small></div>
-      <div class="affectations">
-        ${puces || `<span style="color:var(--ardoise-clair);font-size:13px">Personne</span>`}
-        ${estAdmin ? `<button class="btn fantome" style="padding:4px 10px" onclick="ouvrirAstreinte('${ds}')">＋</button>` : ""}
-      </div>
-    </div>`;
-  }
-  g.innerHTML = html;
-}
+  // Ensemble des couples "equipeId|jour" couverts (les plages sont dépliées jour par jour).
+  const couvert = new Set();
+  astreintes.forEach((a) => {
+    if (a.type !== "equipe") return;
+    const d1 = new Date(a.date_debut + "T00:00:00"), d2 = new Date(a.date_fin + "T00:00:00");
+    for (let d = new Date(d1); d <= d2; d.setDate(d.getDate() + 1)) couvert.add(a.equipe_id + "|" + isoDate(d));
+  });
 
-function ouvrirAstreinte(ds) {
-  _jourCible = ds;
-  const sel = document.getElementById("p-equipe");
-  if (!_equipesCache.length) {
-    alert("Aucune équipe. Créez d'abord une équipe dans l'onglet Administration.");
+  const estAdmin = window.MON_ROLE === "admin";
+  const equipes = _equipesPlanning;
+  const info = document.getElementById("planning-info");
+
+  if (!equipes.length) {
+    document.getElementById("planning-mois").innerHTML = "";
+    info.innerHTML = `<div class="vide">Aucune équipe. ${estAdmin
+      ? "Créez des équipes dans l'onglet Administration pour composer le planning."
+      : "L'administrateur n'a pas encore créé d'équipe."}</div>`;
     return;
   }
-  sel.innerHTML = _equipesCache
-    .filter((e) => e.actif)
-    .map((e) => `<option value="${e.id}">${ech(e.nom)} (${e.membres.length} tech.)</option>`).join("");
-  document.getElementById("p-debut").value = ds;
-  document.getElementById("p-fin").value = ds;
-  document.getElementById("p-libelle").value = "";
-  ouvrir("modale-astreinte");
+  info.innerHTML = estAdmin
+    ? `<div class="planning-aide">Cliquez une case pour mettre une équipe d'astreinte ce jour-là, ou la retirer.</div>`
+    : "";
+
+  const auj = isoDate(new Date());
+  const head = `<tr><th class="coin">Jour</th>` +
+    equipes.map((e) => `<th class="col-eq" style="border-top:3px solid ${e.couleur}">${ech(e.nom)}</th>`).join("") + `</tr>`;
+
+  let body = "";
+  for (let j = 1; j <= nb; j++) {
+    const dt = new Date(an, mo, j);
+    const ds = isoDate(dt);
+    const dow = dt.getDay();
+    const we = (dow === 0 || dow === 6);
+    const nomJour = dt.toLocaleDateString("fr-FR", { weekday: "short" });
+    let tds = "";
+    equipes.forEach((e) => {
+      const on = couvert.has(e.id + "|" + ds);
+      const style = on ? `style="background:${e.couleur}"` : "";
+      const cls = "cell" + (on ? " on" : "") + (estAdmin ? " editable" : "");
+      const clic = estAdmin ? `onclick="basculerCase(${e.id},'${ds}')"` : "";
+      tds += `<td class="${cls}" ${style} ${clic} title="${ech(e.nom)} · ${ds}">${on ? "✓" : ""}</td>`;
+    });
+    body += `<tr class="jour-row ${we ? "we" : ""} ${ds === auj ? "auj" : ""}">
+      <th class="jour-cell"><span class="jnum">${j}</span> <span class="jnom">${nomJour}</span></th>${tds}</tr>`;
+  }
+  document.getElementById("planning-mois").innerHTML =
+    `<table class="mois-table"><thead>${head}</thead><tbody>${body}</tbody></table>`;
 }
 
-async function creerAstreinte() {
-  const corps = {
-    equipe_id: document.getElementById("p-equipe").value,
-    date_debut: document.getElementById("p-debut").value,
-    date_fin: document.getElementById("p-fin").value,
-    libelle: document.getElementById("p-libelle").value.trim(),
-  };
-  if (!corps.equipe_id || !corps.date_debut) return;
-  try { await api("/api/astreinte", "POST", corps); fermer("modale-astreinte"); rendrePlanning(); }
+async function basculerCase(eid, ds) {
+  try { await api("/api/astreinte/toggle", "POST", { equipe_id: eid, date: ds }); rendrePlanning(); }
   catch (e) { alert(e.message); }
 }
 
-async function suppAstreinte(id) {
-  if (!confirm("Retirer cette affectation d'astreinte ?")) return;
-  try { await api(`/api/astreinte/${id}`, "DELETE"); rendrePlanning(); }
-  catch (e) { alert(e.message); }
-}
 
 /* =====================================================================
    ADMINISTRATION DES UTILISATEURS

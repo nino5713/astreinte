@@ -373,26 +373,45 @@ a { color: inherit; }
 .login-carte .astuce { font-size: 12px; color: var(--ardoise-clair); margin-top: 14px; text-align: center; }
 
 /* =========================================================
-   Planning
+   Planning — tableau mensuel (jours × équipes)
 ========================================================= */
-.planning-grille { display: grid; gap: 8px; }
 .semaine-nav { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
-.semaine-nav .titre { font-size: 16px; font-weight: 700; }
-.jour-ligne {
-  display: grid; grid-template-columns: 130px 1fr; gap: 12px; align-items: stretch;
-  background: var(--carte); border: 1px solid var(--bordure); border-radius: 10px; padding: 12px 14px;
+.semaine-nav .titre { font-size: 17px; font-weight: 700; min-width: 180px; }
+.planning-aide { font-size: 13px; color: var(--ardoise); background: var(--repos-bg);
+  padding: 9px 13px; border-radius: 9px; margin-bottom: 12px; }
+
+.mois-scroll {
+  overflow: auto; border: 1px solid var(--bordure); border-radius: var(--r);
+  background: var(--carte); box-shadow: var(--ombre);
+  max-height: calc(100vh - 210px);
 }
-.jour-ligne.we { background: #F8FAFC; }
-.jour-ligne.aujourdhui { border-color: var(--socom); box-shadow: 0 0 0 2px rgba(30,58,138,.12); }
-.jour-ligne .date { font-weight: 700; }
-.jour-ligne .date small { display: block; color: var(--ardoise); font-weight: 500; font-size: 12px; text-transform: capitalize; }
-.jour-ligne .affectations { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.puce-astreinte {
-  display: inline-flex; align-items: center; gap: 8px; background: var(--repos-bg); color: var(--socom-fonce);
-  padding: 5px 6px 5px 12px; border-radius: 999px; font-size: 13px; font-weight: 600;
+.mois-table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13px; }
+.mois-table th, .mois-table td { border-bottom: 1px solid var(--bordure); border-right: 1px solid var(--bordure); }
+.mois-table thead th {
+  position: sticky; top: 0; z-index: 3; background: var(--fond);
+  padding: 9px 12px; font-weight: 700; white-space: nowrap;
 }
-.puce-astreinte .x { background: rgba(0,0,0,.08); border: none; border-radius: 50%; width: 20px; height: 20px; cursor: pointer; color: var(--ardoise); font-size: 13px; }
-.puce-astreinte .x:hover { background: rgba(220,38,38,.15); color: var(--depasse); }
+.mois-table thead th.coin { left: 0; z-index: 4; }
+.mois-table th.col-eq { text-align: center; min-width: 116px; }
+.mois-table tbody th.jour-cell {
+  position: sticky; left: 0; z-index: 2; background: var(--carte);
+  text-align: left; padding: 7px 12px; white-space: nowrap; font-weight: 500;
+}
+.jour-cell .jnum { font-weight: 700; }
+.jour-cell .jnom { color: var(--ardoise); text-transform: capitalize; font-size: 12px; }
+.jour-row.we th.jour-cell, .jour-row.we td.cell:not(.on) { background: #F6F8FB; }
+.jour-row.auj th.jour-cell { border-left: 3px solid var(--socom); color: var(--socom); }
+
+.mois-table td.cell { text-align: center; height: 34px; color: #fff; font-weight: 700; user-select: none; }
+.mois-table td.cell.editable { cursor: pointer; }
+.mois-table td.cell.editable:not(.on):hover { background: var(--repos-bg); }
+.mois-table td.cell.on.editable:hover { filter: brightness(.9); }
+
+@media (max-width: 640px) {
+  .mois-scroll { max-height: calc(100vh - 190px); }
+  .mois-table th.col-eq { min-width: 96px; }
+  .semaine-nav .titre { min-width: 0; flex: 1; text-align: center; font-size: 15px; }
+}
 
 @media (max-width: 640px) {
   .topbar {

@@ -813,6 +813,65 @@ def api_suppr_astreinte(aid):
     return jsonify({"ok": True})
 
 
+@app.route("/api/equipes")
+@login_requis
+def api_equipes_light():
+    """Liste légère des équipes actives (pour afficher les colonnes du planning)."""
+    db = get_db()
+    rows = db.execute(
+        "SELECT id, nom, couleur FROM equipes WHERE actif = 1 ORDER BY nom"
+    ).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/astreinte/toggle", methods=["POST"])
+@admin_requis
+def api_toggle_astreinte():
+    """Active/désactive une équipe d'astreinte pour un jour précis.
+    Si le jour est déjà couvert, on le retire (en découpant proprement une
+    éventuelle plage). Sinon on crée une astreinte d'un jour."""
+    db = get_db()
+    data = request.get_json(force=True)
+    eid = data.get("equipe_id")
+    jour = data.get("date")
+    if not (eid and jour):
+        return jsonify({"erreur": "Équipe et date requises."}), 400
+    if not db.execute("SELECT 1 FROM equipes WHERE id = ?", (eid,)).fetchone():
+        abort(404)
+
+    d = datetime.strptime(jour, "%Y-%m-%d").date()
+    rows = db.execute(
+        "SELECT * FROM astreintes WHERE equipe_id = ? AND date_debut <= ? AND date_fin >= ?",
+        (eid, jour, jour),
+    ).fetchall()
+
+    if rows:
+        # Retirer ce jour : supprimer la ligne et recréer les morceaux autour.
+        for r in rows:
+            d1 = datetime.strptime(r["date_debut"], "%Y-%m-%d").date()
+            d2 = datetime.strptime(r["date_fin"], "%Y-%m-%d").date()
+            db.execute("DELETE FROM astreintes WHERE id = ?", (r["id"],))
+            if d1 < d:
+                db.execute(
+                    "INSERT INTO astreintes (equipe_id, date_debut, date_fin, libelle) VALUES (?,?,?,?)",
+                    (eid, d1.isoformat(), (d - timedelta(days=1)).isoformat(), r["libelle"]),
+                )
+            if d2 > d:
+                db.execute(
+                    "INSERT INTO astreintes (equipe_id, date_debut, date_fin, libelle) VALUES (?,?,?,?)",
+                    (eid, (d + timedelta(days=1)).isoformat(), d2.isoformat(), r["libelle"]),
+                )
+        db.commit()
+        return jsonify({"ok": True, "actif": False})
+
+    db.execute(
+        "INSERT INTO astreintes (equipe_id, date_debut, date_fin) VALUES (?,?,?)",
+        (eid, jour, jour),
+    )
+    db.commit()
+    return jsonify({"ok": True, "actif": True})
+
+
 # --------------------------------------------------------------------------
 # API — équipes (réservé admin)
 # --------------------------------------------------------------------------

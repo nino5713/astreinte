@@ -4,41 +4,16 @@
 {% block contenu %}
 <div class="contenu">
   <div class="semaine-nav">
-    <button class="btn" id="sem-prec">‹ Semaine préc.</button>
-    <div class="titre" id="sem-titre">…</div>
-    <button class="btn" id="sem-suiv">Semaine suiv. ›</button>
-    <button class="btn fantome" id="sem-auj">Aujourd'hui</button>
+    <button class="btn" id="mois-prec">‹</button>
+    <div class="titre" id="mois-titre" style="text-transform:capitalize">…</div>
+    <button class="btn" id="mois-suiv">›</button>
+    <button class="btn fantome" id="mois-auj">Ce mois-ci</button>
   </div>
 
-  <div class="planning-grille" id="planning-grille"></div>
-</div>
+  <div id="planning-info"></div>
 
-<!-- Modale : affecter une astreinte (dispatcher) -->
-<div class="overlay" id="modale-astreinte">
-  <div class="modale">
-    <div class="tete"><h3 id="astreinte-titre">Affecter une équipe d'astreinte</h3><button class="fermer" data-fermer>×</button></div>
-    <div class="corps">
-      <div class="champ">
-        <label>Équipe</label>
-        <select id="p-equipe"></select>
-      </div>
-      <div class="champ">
-        <label>Du</label>
-        <input type="date" id="p-debut">
-      </div>
-      <div class="champ">
-        <label>Au (inclus)</label>
-        <input type="date" id="p-fin">
-      </div>
-      <div class="champ">
-        <label>Libellé (facultatif)</label>
-        <input type="text" id="p-libelle" placeholder="Ex. Astreinte week-end">
-      </div>
-    </div>
-    <div class="pied">
-      <button class="btn fantome" data-fermer>Annuler</button>
-      <button class="btn primaire" id="btn-creer-astreinte">Affecter</button>
-    </div>
+  <div class="mois-scroll">
+    <div id="planning-mois"></div>
   </div>
 </div>
 {% endblock %}
