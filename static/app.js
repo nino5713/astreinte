@@ -194,25 +194,29 @@ function rendreTechniciens(etat) {
     g.innerHTML = `<div class="vide">Personne n'est d'astreinte en ce moment. Composez le planning dans l'onglet Planning.</div>`;
     return;
   }
-  g.innerHTML = etat.techniciens.map((t) => {
-    const niv = t.etat;
+  const estAdmin = window.MON_ROLE === "admin";
+  const pl = etat.plafonds;
+  const lignes = etat.techniciens.map((t) => {
     const postes = (t.gardes || []).map((x) =>
-      `<span class="poste-tag" style="border-color:${x.couleur_equipe};color:${x.couleur_equipe}">${ech(x.equipe_nom)} · ${x.slot === "backup" ? "Back-up" : "Titulaire"}</span>`).join("");
-    return `<div class="carte-tech st-${t.statut}" style="border-left-color:${t.couleur}">
-      <div class="tete">
-        <div><div class="nom"><span class="pt-dot" style="background:${t.couleur}"></span>${ech(t.nom)}</div>
-        <div class="tel">${ech(t.telephone || "")}</div></div>
-        <span class="pastille ${t.statut}">${LIB_STATUT[t.statut]}</span>
-      </div>
-      ${postes ? `<div class="postes">${postes}</div>` : ""}
-      <div class="jauges">
-        ${jaugeHTML("Jour", t.heures_jour, etat.plafonds.max_jour, jJour(t, etat.plafonds))}
-        ${jaugeHTML("Semaine", t.heures_semaine, etat.plafonds.max_semaine, jSem(t, etat.plafonds))}
-      </div>
-      ${niv !== "ok" ? `<div style="margin-top:10px"><span class="badge-etat ${niv}">${niv === "depasse" ? "Plafond atteint" : "Proche du plafond"}</span></div>` : ""}
-      ${window.MON_ROLE === "admin" ? `<button class="btn ajust-lien" onclick="ouvrirAjustParId(${t.id})">Ajuster les heures</button>` : ""}
-    </div>`;
+      `<span class="poste-tag" style="border-color:${x.couleur_equipe};color:${x.couleur_equipe}">${ech(x.equipe_nom)} · ${x.slot === "backup" ? "Back-up" : "Titulaire"}</span>`).join(" ") || "<span class=\"attenue\">—</span>";
+    const cj = jJour(t, pl), cs = jSem(t, pl);
+    return `<tr>
+      <td class="col-nom"><span class="pt-dot" style="background:${t.couleur}"></span>${ech(t.nom)}</td>
+      <td class="col-tel">${ech(t.telephone || "—")}</td>
+      <td>${postes}</td>
+      <td><span class="pastille ${t.statut}">${LIB_STATUT[t.statut]}</span></td>
+      <td class="col-h h-${cj}">${fmtH(t.heures_jour)} <span class="attenue">/ ${pl.max_jour}h</span></td>
+      <td class="col-h h-${cs}">${fmtH(t.heures_semaine)} <span class="attenue">/ ${pl.max_semaine}h</span></td>
+      ${estAdmin ? `<td class="col-act"><button class="btn" onclick="ouvrirAjustParId(${t.id})">Ajuster</button></td>` : ""}
+    </tr>`;
   }).join("");
+  g.innerHTML = `<div class="tableau-wrap"><table class="tableau">
+    <thead><tr>
+      <th>Technicien</th><th class="col-tel">Téléphone</th><th>Poste</th><th>Statut</th>
+      <th>Jour</th><th>Semaine</th>${estAdmin ? "<th></th>" : ""}
+    </tr></thead>
+    <tbody>${lignes}</tbody>
+  </table></div>`;
 }
 function jJour(t, pl) { return t.heures_jour >= pl.max_jour ? "depasse" : (t.heures_jour >= pl.alerte_jour ? "attention" : "ok"); }
 function jSem(t, pl) { return t.heures_semaine >= pl.max_semaine ? "depasse" : (t.heures_semaine >= pl.alerte_semaine ? "attention" : "ok"); }
@@ -290,6 +294,9 @@ function carteDepFinie(d) {
         ${d.technicien_nom ? `<span><b>Tech.</b> ${ech(d.technicien_nom)}</span>` : ""}
         ${d.date_fin ? `<span>Terminé le ${fmtDateHeure(d.date_fin)}</span>` : ""}
         ${duree ? `<span><b>Durée</b> ${duree}</span>` : ""}
+      </div>
+      <div class="actions">
+        <button class="btn danger" onclick="supprimerDep(${d.id})">Supprimer</button>
       </div>
     </div>
   </div>`;
@@ -371,6 +378,12 @@ async function confirmerAssign() {
 async function annulerDep(id) {
   if (!confirm("Annuler ce dépannage ?")) return;
   try { await api(`/api/depannage/${id}/annuler`, "POST", {}); rafraichirDashboard(); }
+  catch (e) { alert(e.message); }
+}
+
+async function supprimerDep(id) {
+  if (!confirm("Supprimer définitivement ce dépannage terminé ? Ses heures ne seront plus comptées.")) return;
+  try { await api(`/api/depannage/${id}`, "DELETE"); rafraichirDashboard(); }
   catch (e) { alert(e.message); }
 }
 
@@ -719,25 +732,28 @@ async function chargerEquipes() {
     l.innerHTML = `<div class="vide">Aucune équipe. Créez-en une pour pouvoir l'affecter au planning.</div>`;
     return;
   }
-  l.innerHTML = equipes.map((e) => {
+  const lignes = equipes.map((e) => {
     const membres = e.membres.length
-      ? e.membres.map((m) => `<span class="membre-puce">${ech(m.nom)}</span>`).join("")
-      : `<span style="color:var(--ardoise-clair);font-size:13px">Aucun technicien</span>`;
-    const badge = e.deux_colonnes ? `<span class="eq-badge">Titulaire + Back-up</span>` : "";
-    const badgeH = e.heures_jour ? `<span class="eq-badge heures">${(+e.heures_jour).toString().replace('.', ',')} h/jour${e.heures_jour_arrondi ? ' → ' + (+e.heures_jour_arrondi).toString().replace('.', ',') + ' h' : ''}</span>` : "";
-    const badgeBG = e.backup_general ? `<span class="eq-badge bg">Back-up général</span>` : "";
-    const badgeAl = e.alarme ? `<span class="eq-badge alarme">🔔 Alarme</span>` : "";
-    return `<div class="carte-equipe" style="border-left:5px solid ${e.couleur}">
-      <div class="eq-tete">
-        <div class="eq-nom">${ech(e.nom)} ${badge} ${badgeH} ${badgeBG} ${badgeAl}</div>
-        <div class="eq-actions">
-          <button class="btn" onclick="ouvrirEditionEquipe(${e.id})">Modifier</button>
-          <button class="btn danger" onclick="supprimerEquipe(${e.id}, '${ech(e.nom).replace(/'/g, "\\'")}')">Supprimer</button>
-        </div>
-      </div>
-      <div class="eq-membres">${membres}</div>
-    </div>`;
+      ? e.membres.map((m) => `<span class="membre-puce">${ech(m.nom)}</span>`).join(" ")
+      : `<span class="attenue">Aucun technicien</span>`;
+    const opts = [];
+    if (e.deux_colonnes) opts.push(`<span class="eq-badge">Titulaire + Back-up</span>`);
+    if (e.heures_jour) opts.push(`<span class="eq-badge heures">${(+e.heures_jour).toString().replace('.', ',')} h/jour${e.heures_jour_arrondi ? ' → ' + (+e.heures_jour_arrondi).toString().replace('.', ',') + ' h' : ''}</span>`);
+    if (e.backup_general) opts.push(`<span class="eq-badge bg">Back-up général</span>`);
+    if (e.alarme) opts.push(`<span class="eq-badge alarme">🔔 Alarme</span>`);
+    return `<tr>
+      <td class="col-nom"><span class="carre-couleur" style="background:${e.couleur}"></span>${ech(e.nom)}</td>
+      <td class="col-membres">${membres}</td>
+      <td>${opts.join(" ") || '<span class="attenue">—</span>'}</td>
+      <td class="col-act">
+        <button class="btn" onclick="ouvrirEditionEquipe(${e.id})">Modifier</button>
+        <button class="btn danger" onclick="supprimerEquipe(${e.id}, '${ech(e.nom).replace(/'/g, "\\'")}')">Supprimer</button>
+      </td>
+    </tr>`;
   }).join("");
+  l.innerHTML = `<div class="tableau-wrap"><table class="tableau">
+    <thead><tr><th>Équipe</th><th>Membres</th><th>Options</th><th></th></tr></thead>
+    <tbody>${lignes}</tbody></table></div>`;
 }
 
 async function ouvrirNouvelleEquipe() {
@@ -823,28 +839,26 @@ async function chargerUsers() {
   try { users = await api("/api/admin/utilisateurs"); } catch (e) { alert(e.message); return; }
   _usersCache = users;
   document.getElementById("compte-users").textContent = users.length;
-  const l = document.getElementById("liste-users");
-  l.innerHTML = users.map((u) => {
-    const inactif = u.actif ? "" : " inactif";
+  const lignes = users.map((u) => {
     const estTech = u.role === "technicien";
-    const dot = estTech ? `<span class="pt-dot" style="background:${u.couleur || '#64748B'}"></span>` : "";
-    return `<div class="carte-user${inactif}">
-      <div class="u-ident">
-        <div class="u-nom">${dot}${ech(u.nom)}${u.actif ? "" : ' <span class="u-tag-inactif">désactivé</span>'}</div>
-        <div class="u-meta">
-          <span class="u-role r-${u.role}">${LIB_ROLE[u.role] || u.role}</span>
-          ${u.telephone ? `<span class="u-tel">${ech(u.telephone)}</span>` : ""}
-        </div>
-      </div>
-      <div class="u-actions">
+    const dot = estTech ? `<span class="pt-dot" style="background:${u.couleur || '#64748B'}"></span>` : `<span class="pt-dot vide"></span>`;
+    return `<tr class="${u.actif ? "" : "inactif"}">
+      <td class="col-nom">${dot}${ech(u.nom)}</td>
+      <td><span class="u-role r-${u.role}">${LIB_ROLE[u.role] || u.role}</span></td>
+      <td class="col-tel">${u.telephone ? ech(u.telephone) : '<span class="attenue">—</span>'}</td>
+      <td>${u.actif ? '<span class="pastille disponible">Actif</span>' : '<span class="u-tag-inactif">Désactivé</span>'}</td>
+      <td class="col-act">
         <button class="btn" onclick="ouvrirEditionUser(${u.id})">Modifier</button>
         ${u.actif
           ? `<button class="btn" onclick="basculerActif(${u.id}, false)">Désactiver</button>`
           : `<button class="btn succes" onclick="basculerActif(${u.id}, true)">Réactiver</button>`}
         <button class="btn danger" onclick="supprimerUser(${u.id}, '${ech(u.nom).replace(/'/g, "\\'")}')">Supprimer</button>
-      </div>
-    </div>`;
+      </td>
+    </tr>`;
   }).join("");
+  document.getElementById("liste-users").innerHTML = `<div class="tableau-wrap"><table class="tableau">
+    <thead><tr><th>Nom</th><th>Rôle</th><th class="col-tel">Téléphone</th><th>Statut</th><th></th></tr></thead>
+    <tbody>${lignes}</tbody></table></div>`;
 }
 
 function paletteHTML(containerId, couleurActive, cb) {

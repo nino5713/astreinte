@@ -983,6 +983,22 @@ def api_annuler(did):
     return jsonify({"ok": True})
 
 
+@app.route("/api/depannage/<int:did>", methods=["DELETE"])
+@dispatcher_requis
+def api_supprimer_depannage(did):
+    """Supprime définitivement un dépannage terminé ou annulé.
+    (Les heures de ce dépannage ne sont alors plus comptées.)"""
+    db = get_db()
+    dep = db.execute("SELECT statut FROM depannages WHERE id = ?", (did,)).fetchone()
+    if not dep:
+        abort(404)
+    if dep["statut"] not in ("termine", "annule"):
+        return jsonify({"erreur": "Seuls les dépannages terminés ou annulés peuvent être supprimés."}), 400
+    db.execute("DELETE FROM depannages WHERE id = ?", (did,))
+    db.commit()
+    return jsonify({"ok": True})
+
+
 # --------------------------------------------------------------------------
 # API — statut technicien
 # --------------------------------------------------------------------------

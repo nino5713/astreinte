@@ -528,3 +528,40 @@ a { color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+/* =====================================================================
+   Tableaux (techniciens d'astreinte, utilisateurs, équipes)
+===================================================================== */
+.grille-tech, .liste-users, .liste-equipes { display: block; max-height: none; overflow: visible; padding: 0; }
+.tableau-wrap {
+  width: 100%; overflow-x: auto; border: 1px solid var(--bordure);
+  border-radius: var(--r); background: var(--carte); box-shadow: var(--ombre);
+}
+.tableau { width: 100%; border-collapse: collapse; font-size: 14px; }
+.tableau thead th {
+  text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--ardoise); padding: 11px 14px;
+  border-bottom: 1px solid var(--bordure); white-space: nowrap; background: var(--fond);
+}
+.tableau tbody td { padding: 10px 14px; border-bottom: 1px solid var(--bordure); vertical-align: middle; }
+.tableau tbody tr:last-child td { border-bottom: none; }
+.tableau tbody tr:hover { background: var(--fond); }
+.tableau tr.inactif { opacity: .55; }
+.tableau .col-nom { font-weight: 600; white-space: nowrap; }
+.tableau .col-act { white-space: nowrap; text-align: right; }
+.tableau .col-act .btn { margin-left: 6px; }
+.tableau .col-h { font-variant-numeric: tabular-nums; font-weight: 700; white-space: nowrap; }
+.tableau .col-h.h-attention { color: var(--attention); }
+.tableau .col-h.h-depasse { color: var(--depann); }
+.tableau .attenue { color: var(--ardoise-clair); font-weight: 400; }
+.tableau .col-membres { max-width: 360px; }
+.tableau .poste-tag { display: inline-block; margin: 1px 0; }
+.carre-couleur { display: inline-block; width: 13px; height: 13px; border-radius: 3px; margin-right: 8px; vertical-align: middle; }
+.pt-dot.vide { background: transparent; border: 1px dashed var(--bordure); }
+.tableau .membre-puce { display: inline-block; background: var(--fond); border: 1px solid var(--bordure);
+  border-radius: 999px; padding: 2px 9px; font-size: 12px; margin: 2px 2px 2px 0; }
+
+@media (max-width: 640px) {
+  .tableau .col-tel { display: none; }
+  .tableau tbody td, .tableau thead th { padding: 9px 10px; }
+}
