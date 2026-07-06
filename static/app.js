@@ -582,12 +582,14 @@ async function retirerGarde() {
 ===================================================================== */
 const LIB_ROLE = { technicien: "Technicien", dispatcher: "Dispatcher", admin: "Administrateur" };
 let _pinCible = null;
+let _userEdit = null;      // id utilisateur en édition, ou null pour création
+let _usersCache = [];      // dernière liste chargée (pour préremplir l'édition)
 
 function demarrerAdmin() {
   brancherFermetures();
   horloge(); setInterval(horloge, 1000);
   document.getElementById("btn-nouvel-user").addEventListener("click", ouvrirNouvelUser);
-  document.getElementById("btn-creer-user").addEventListener("click", creerUser);
+  document.getElementById("btn-creer-user").addEventListener("click", enregistrerUser);
   document.getElementById("btn-confirmer-pin").addEventListener("click", confirmerPin);
   document.getElementById("btn-confirmer-couleur").addEventListener("click", confirmerCouleur);
   document.querySelectorAll('#u-role input').forEach((r) => r.addEventListener("change", majAideRole));
@@ -719,14 +721,13 @@ async function supprimerEquipe(id, nom) {
 async function chargerUsers() {
   let users = [];
   try { users = await api("/api/admin/utilisateurs"); } catch (e) { alert(e.message); return; }
+  _usersCache = users;
   document.getElementById("compte-users").textContent = users.length;
   const l = document.getElementById("liste-users");
   l.innerHTML = users.map((u) => {
     const inactif = u.actif ? "" : " inactif";
     const estTech = u.role === "technicien";
     const dot = estTech ? `<span class="pt-dot" style="background:${u.couleur || '#64748B'}"></span>` : "";
-    const btnCouleur = estTech
-      ? `<button class="btn" onclick="ouvrirCouleur(${u.id}, '${ech(u.nom).replace(/'/g, "\\'")}', '${u.couleur || '#64748B'}')">Couleur</button>` : "";
     return `<div class="carte-user${inactif}">
       <div class="u-ident">
         <div class="u-nom">${dot}${ech(u.nom)}${u.actif ? "" : ' <span class="u-tag-inactif">désactivé</span>'}</div>
@@ -736,8 +737,7 @@ async function chargerUsers() {
         </div>
       </div>
       <div class="u-actions">
-        ${btnCouleur}
-        <button class="btn" onclick="ouvrirPin(${u.id}, '${ech(u.nom).replace(/'/g, "\\'")}')">PIN</button>
+        <button class="btn" onclick="ouvrirEditionUser(${u.id})">Modifier</button>
         ${u.actif
           ? `<button class="btn" onclick="basculerActif(${u.id}, false)">Désactiver</button>`
           : `<button class="btn succes" onclick="basculerActif(${u.id}, true)">Réactiver</button>`}
@@ -789,6 +789,11 @@ function majAideRole() {
 }
 
 function ouvrirNouvelUser() {
+  _userEdit = null;
+  document.getElementById("user-titre").textContent = "Nouvel utilisateur";
+  document.getElementById("btn-creer-user").textContent = "Créer l'utilisateur";
+  document.getElementById("u-pin-label").textContent = "Code PIN (min. 4 chiffres)";
+  document.getElementById("u-pin").placeholder = "Ex. 4827";
   document.getElementById("u-nom").value = "";
   document.getElementById("u-tel").value = "";
   document.getElementById("u-pin").value = "";
@@ -800,7 +805,27 @@ function ouvrirNouvelUser() {
   document.getElementById("u-nom").focus();
 }
 
-async function creerUser() {
+function ouvrirEditionUser(id) {
+  const u = (_usersCache || []).find((x) => x.id === id);
+  if (!u) return;
+  _userEdit = id;
+  document.getElementById("user-titre").textContent = "Modifier l'utilisateur";
+  document.getElementById("btn-creer-user").textContent = "Enregistrer";
+  document.getElementById("u-pin-label").textContent = "Nouveau code PIN (laisser vide pour ne pas changer)";
+  document.getElementById("u-pin").placeholder = "Inchangé";
+  document.getElementById("u-nom").value = u.nom || "";
+  document.getElementById("u-tel").value = u.telephone || "";
+  document.getElementById("u-pin").value = "";
+  const radio = document.querySelector(`#u-role input[value="${u.role}"]`);
+  if (radio) radio.checked = true;
+  _couleurCreation = u.couleur || COULEURS_TECH[0];
+  paletteHTML("u-couleurs", _couleurCreation, "choisirCouleurCreation");
+  majAideRole();
+  ouvrir("modale-user");
+  document.getElementById("u-nom").focus();
+}
+
+async function enregistrerUser() {
   const corps = {
     nom: document.getElementById("u-nom").value.trim(),
     telephone: document.getElementById("u-tel").value.trim(),
@@ -809,8 +834,10 @@ async function creerUser() {
     couleur: _couleurCreation,
   };
   if (!corps.nom) { document.getElementById("u-nom").focus(); return; }
-  if (corps.pin.length < 4) { alert("Le code PIN doit faire au moins 4 chiffres."); return; }
-  try { await api("/api/admin/utilisateur", "POST", corps); fermer("modale-user"); chargerUsers(); }
+  if (!_userEdit && corps.pin.length < 4) { alert("Le code PIN doit faire au moins 4 chiffres."); return; }
+  if (_userEdit && corps.pin && corps.pin.length < 4) { alert("Le code PIN doit faire au moins 4 chiffres."); return; }
+  const url = _userEdit ? `/api/admin/utilisateur/${_userEdit}` : "/api/admin/utilisateur";
+  try { await api(url, "POST", corps); fermer("modale-user"); chargerUsers(); }
   catch (e) { alert(e.message); }
 }
 

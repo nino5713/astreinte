@@ -72,7 +72,7 @@
 <!-- Modale : créer un utilisateur -->
 <div class="overlay" id="modale-user">
   <div class="modale">
-    <div class="tete"><h3>Nouvel utilisateur</h3><button class="fermer" data-fermer>×</button></div>
+    <div class="tete"><h3 id="user-titre">Nouvel utilisateur</h3><button class="fermer" data-fermer>×</button></div>
     <div class="corps">
       <div class="champ">
         <label>Nom *</label>
@@ -91,7 +91,7 @@
         </div>
       </div>
       <div class="champ">
-        <label>Code PIN (min. 4 chiffres)</label>
+        <label id="u-pin-label">Code PIN (min. 4 chiffres)</label>
         <input type="text" id="u-pin" inputmode="numeric" autocomplete="off" placeholder="Ex. 4827">
       </div>
       <div class="champ" id="u-couleur-champ">
