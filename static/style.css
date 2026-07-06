@@ -287,16 +287,16 @@ a { color: inherit; }
 .modale .corps { padding: 20px; display: grid; gap: 14px; }
 .modale .pied { padding: 16px 20px; border-top: 1px solid var(--bordure); display: flex; justify-content: flex-end; gap: 10px; }
 
-/* Fiche utilisateur (création / modification) : plein écran */
-#modale-user { padding: 0; align-items: stretch; justify-content: stretch; }
-#modale-user .modale {
+/* Fiches utilisateur et équipe (création / modification) : plein écran */
+#modale-user, #modale-equipe { padding: 0; align-items: stretch; justify-content: stretch; }
+#modale-user .modale, #modale-equipe .modale {
   max-width: none; width: 100%; height: 100%; border-radius: 0;
   display: flex; flex-direction: column; align-self: stretch;
 }
-#modale-user .tete { padding: 18px 22px; }
-#modale-user .corps { flex: 1; overflow-y: auto; align-content: start;
+#modale-user .tete, #modale-equipe .tete { padding: 18px 22px; }
+#modale-user .corps, #modale-equipe .corps { flex: 1; overflow-y: auto; align-content: start;
   max-width: 640px; width: 100%; margin: 0 auto; padding: 24px 20px; }
-#modale-user .pied { max-width: 640px; width: 100%; margin: 0 auto; }
+#modale-user .pied, #modale-equipe .pied { max-width: 640px; width: 100%; margin: 0 auto; }
 .champ { display: grid; gap: 6px; }
 .champ label { font-size: 12.5px; font-weight: 600; color: var(--ardoise); }
 .champ input, .champ select, .champ textarea {
