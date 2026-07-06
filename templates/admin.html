@@ -46,6 +46,11 @@
         <p class="aide-role">Ajoutées automatiquement au temps journalier et hebdomadaire de chaque membre, du lundi au vendredi. Laisser vide ou 0 pour ne rien créditer.</p>
       </div>
       <div class="champ">
+        <label>Heures d'un jour terminé sans dépannage (arrondi)</label>
+        <input type="number" id="e-heures-arrondi" min="0" max="24" step="0.5" placeholder="Ex. 8">
+        <p class="aide-role">Une fois la journée passée, si aucun dépannage n'a eu lieu ce jour-là, elle est comptée à cette valeur (ex. 8h au lieu de 7h). S'il y a eu un dépannage, on garde les heures réelles. Laisser vide pour ne pas arrondir.</p>
+      </div>
+      <div class="champ">
         <label class="case-option">
           <input type="checkbox" id="e-backup-general">
           <span><b>Équipe de back-up général</b> — désigne l'équipe de secours générale. Une seule équipe peut l'être (cocher ici la retire des autres).</span>

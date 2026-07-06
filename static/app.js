@@ -90,6 +90,7 @@ function demarrerDashboard() {
   document.getElementById("btn-nouveau").addEventListener("click", ouvrirNouveauDep);
   document.getElementById("btn-creer-dep").addEventListener("click", creerDepannage);
   document.getElementById("btn-confirmer-assign").addEventListener("click", confirmerAssign);
+  document.getElementById("btn-ajust").addEventListener("click", enregistrerAjust);
 
   rafraichirDashboard();
   setInterval(rafraichirDashboard, INTERVALLE);
@@ -148,6 +149,43 @@ function activerNotifications() {
   Notification.requestPermission().then(() => { if (_etat) rendreAlertes(_etat); });
 }
 
+/* Ajustement manuel des heures */
+let _ajustCible = null;
+let _ajustVals = { jour: 0, semaine: 0 };
+
+function ouvrirAjust(tech) {
+  if (!tech) return;
+  _ajustCible = tech.id;
+  _ajustVals = { jour: +tech.ajust_jour || 0, semaine: +tech.ajust_semaine || 0 };
+  document.getElementById("ajust-titre").textContent = "Ajuster les heures — " + tech.nom;
+  document.querySelector('#ajust-portee input[value="jour"]').checked = true;
+  document.getElementById("ajust-heures").value = _ajustVals.jour || "";
+  document.querySelectorAll('#ajust-portee input').forEach((r) => {
+    r.onchange = () => {
+      const p = document.querySelector('#ajust-portee input:checked').value;
+      document.getElementById("ajust-heures").value = _ajustVals[p] || "";
+    };
+  });
+  ouvrir("modale-ajust");
+}
+
+function ouvrirAjustParId(id) {
+  const t = (_etat && _etat.techniciens || []).find((x) => x.id === id)
+    || (_etat && _etat.moi && _etat.moi.id === id ? _etat.moi : null);
+  ouvrirAjust(t);
+}
+
+async function enregistrerAjust() {
+  const portee = document.querySelector('#ajust-portee input:checked').value;
+  const heures = document.getElementById("ajust-heures").value || 0;
+  try {
+    await api("/api/ajustement", "POST", { technicien_id: _ajustCible, portee, heures });
+    fermer("modale-ajust");
+    if (document.getElementById("grille-tech")) rafraichirDashboard();
+    if (document.getElementById("mon-statut")) rafraichirTech();
+  } catch (e) { alert(e.message); }
+}
+
 
 function rendreTechniciens(etat) {
   const g = document.getElementById("grille-tech");
@@ -172,6 +210,7 @@ function rendreTechniciens(etat) {
         ${jaugeHTML("Semaine", t.heures_semaine, etat.plafonds.max_semaine, jSem(t, etat.plafonds))}
       </div>
       ${niv !== "ok" ? `<div style="margin-top:10px"><span class="badge-etat ${niv}">${niv === "depasse" ? "Plafond atteint" : "Proche du plafond"}</span></div>` : ""}
+      ${window.MON_ROLE === "admin" ? `<button class="btn ajust-lien" onclick="ouvrirAjustParId(${t.id})">Ajuster les heures</button>` : ""}
     </div>`;
   }).join("");
 }
@@ -297,6 +336,11 @@ function demarrerTechnicien() {
   horloge(); setInterval(horloge, 1000);
   document.querySelectorAll("#mes-boutons-statut button").forEach((b) => {
     b.addEventListener("click", () => changerMonStatut(b.dataset.statut));
+  });
+  brancherFermetures();
+  document.getElementById("btn-ajust").addEventListener("click", enregistrerAjust);
+  document.getElementById("btn-ajust-moi").addEventListener("click", () => {
+    if (_etat && _etat.moi) ouvrirAjust(_etat.moi);
   });
   rafraichirTech();
   setInterval(rafraichirTech, INTERVALLE);
@@ -627,7 +671,7 @@ async function chargerEquipes() {
       ? e.membres.map((m) => `<span class="membre-puce">${ech(m.nom)}</span>`).join("")
       : `<span style="color:var(--ardoise-clair);font-size:13px">Aucun technicien</span>`;
     const badge = e.deux_colonnes ? `<span class="eq-badge">Titulaire + Back-up</span>` : "";
-    const badgeH = e.heures_jour ? `<span class="eq-badge heures">${(+e.heures_jour).toString().replace('.', ',')} h/jour</span>` : "";
+    const badgeH = e.heures_jour ? `<span class="eq-badge heures">${(+e.heures_jour).toString().replace('.', ',')} h/jour${e.heures_jour_arrondi ? ' → ' + (+e.heures_jour_arrondi).toString().replace('.', ',') + ' h' : ''}</span>` : "";
     const badgeBG = e.backup_general ? `<span class="eq-badge bg">Back-up général</span>` : "";
     const badgeAl = e.alarme ? `<span class="eq-badge alarme">🔔 Alarme</span>` : "";
     return `<div class="carte-equipe" style="border-left:5px solid ${e.couleur}">
@@ -649,6 +693,7 @@ async function ouvrirNouvelleEquipe() {
   document.getElementById("e-nom").value = "";
   document.getElementById("e-deux").checked = false;
   document.getElementById("e-heures").value = "";
+  document.getElementById("e-heures-arrondi").value = "";
   document.getElementById("e-backup-general").checked = false;
   document.getElementById("e-alarme").checked = false;
   _couleurChoisie = COULEURS_EQUIPE[0];
@@ -667,6 +712,7 @@ async function ouvrirEditionEquipe(id) {
   document.getElementById("e-nom").value = eq.nom;
   document.getElementById("e-deux").checked = !!eq.deux_colonnes;
   document.getElementById("e-heures").value = eq.heures_jour ? eq.heures_jour : "";
+  document.getElementById("e-heures-arrondi").value = eq.heures_jour_arrondi ? eq.heures_jour_arrondi : "";
   document.getElementById("e-backup-general").checked = !!eq.backup_general;
   document.getElementById("e-alarme").checked = !!eq.alarme;
   _couleurChoisie = eq.couleur;
@@ -704,6 +750,7 @@ async function enregistrerEquipe() {
     nom, couleur: _couleurChoisie, membres,
     deux_colonnes: document.getElementById("e-deux").checked ? 1 : 0,
     heures_jour: document.getElementById("e-heures").value || 0,
+    heures_jour_arrondi: document.getElementById("e-heures-arrondi").value || 0,
     backup_general: document.getElementById("e-backup-general").checked ? 1 : 0,
     alarme: document.getElementById("e-alarme").checked ? 1 : 0,
   };

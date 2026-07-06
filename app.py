@@ -136,6 +136,7 @@ def init_db():
             couleur TEXT NOT NULL DEFAULT '#1E3A8A',
             deux_colonnes INTEGER NOT NULL DEFAULT 0,   -- 1 = colonne Back-up
             heures_jour REAL NOT NULL DEFAULT 0,        -- heures créditées Lun-Ven aux membres
+            heures_jour_arrondi REAL NOT NULL DEFAULT 0,-- jour ouvré terminé sans dépannage arrondi à cette valeur
             backup_general INTEGER NOT NULL DEFAULT 0,  -- 1 = équipe de back-up général (unique)
             alarme INTEGER NOT NULL DEFAULT 0,          -- 1 = les astreintes de cette équipe reçoivent les alertes quota
             actif INTEGER NOT NULL DEFAULT 1
@@ -156,11 +157,23 @@ def init_db():
             slot TEXT NOT NULL DEFAULT 'titulaire',   -- 'titulaire' | 'backup'
             UNIQUE(equipe_id, jour, slot)
         );
+
+        -- Ajustements manuels d'heures (par technicien) : portée 'jour' (cle=YYYY-MM-DD)
+        -- ou 'semaine' (cle = date du lundi). heures = correction en +/-.
+        CREATE TABLE IF NOT EXISTS ajustements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            technicien_id INTEGER NOT NULL REFERENCES techniciens(id) ON DELETE CASCADE,
+            portee TEXT NOT NULL,                     -- 'jour' | 'semaine'
+            cle TEXT NOT NULL,
+            heures REAL NOT NULL DEFAULT 0,
+            UNIQUE(technicien_id, portee, cle)
+        );
         """
     )
     _migration_astreintes_equipes(db)
     _migration_equipe_double(db)
     _migration_equipe_heures(db)
+    _migration_equipe_heures_arrondi(db)
     _migration_equipe_backup_general(db)
     _migration_equipe_alarme(db)
     _migration_tech_couleur(db)
@@ -241,6 +254,14 @@ def _migration_equipe_heures(db):
         db.commit()
 
 
+def _migration_equipe_heures_arrondi(db):
+    """Ajoute la colonne heures_jour_arrondi à equipes si absente."""
+    cols = [r[1] for r in db.execute("PRAGMA table_info(equipes)").fetchall()]
+    if "heures_jour_arrondi" not in cols:
+        db.execute("ALTER TABLE equipes ADD COLUMN heures_jour_arrondi REAL NOT NULL DEFAULT 0")
+        db.commit()
+
+
 def _migration_equipe_backup_general(db):
     """Ajoute la colonne backup_general à equipes si absente."""
     cols = [r[1] for r in db.execute("PRAGMA table_info(equipes)").fetchall()]
@@ -296,45 +317,92 @@ def bornes_semaine(ref_date):
 
 
 def heures_technicien(db, tech_id, ref=None):
-    """Retourne les heures travaillées sur le jour et la semaine en cours.
+    """Heures comptées sur le jour et la semaine en cours.
 
-    Calcul basé sur les interventions (date_debut -> date_fin). Une
-    intervention en cours compte jusqu'à maintenant. Les interventions à
-    cheval sur minuit sont découpées correctement (clipping)."""
+    Règles (paramétrables par équipe) :
+    - Chaque jour ouvré (Lun-Ven) crédite `heures_jour` (ex. 7h) aux membres.
+    - Le jour EN COURS compte : heures_jour + interventions du jour.
+    - Un jour ouvré TERMINÉ (passé, dans la semaine) SANS dépannage est arrondi
+      à `heures_jour_arrondi` (ex. 8h). S'il y a eu un dépannage, pas d'arrondi :
+      on compte heures_jour + interventions.
+    - La semaine additionne tous les jours écoulés depuis le lundi.
+    - Ajustements manuels (jour et semaine) ajoutés par-dessus.
+    """
     if ref is None:
         ref = now_tz()
     ref_date = ref.date()
-    jd, jf = bornes_jour(ref_date)
-    sd, sf = bornes_semaine(ref_date)
+    lundi = ref_date - timedelta(days=ref_date.isoweekday() - 1)
 
-    rows = db.execute(
+    # Taux de l'équipe (somme si plusieurs équipes).
+    row = db.execute(
+        """SELECT COALESCE(SUM(e.heures_jour), 0) AS base,
+                  COALESCE(SUM(e.heures_jour_arrondi), 0) AS arr
+           FROM equipe_membres m JOIN equipes e ON m.equipe_id = e.id
+           WHERE m.technicien_id = ? AND e.actif = 1""",
+        (tech_id,),
+    ).fetchone()
+    base_taux = row["base"] or 0.0
+    arrondi_taux = row["arr"] or 0.0
+    if arrondi_taux <= 0:
+        arrondi_taux = base_taux   # pas d'arrondi paramétré -> pas d'arrondi
+
+    # Interventions du technicien (chargées une fois).
+    deps = db.execute(
         """SELECT date_debut, date_fin FROM depannages
            WHERE technicien_id = ? AND date_debut IS NOT NULL
              AND statut IN ('en_cours', 'termine')""",
         (tech_id,),
     ).fetchall()
+    deps = [(parse(r["date_debut"]), parse(r["date_fin"]) if r["date_fin"] else now_tz())
+            for r in deps]
 
-    h_jour = h_sem = 0.0
-    for r in rows:
-        deb = parse(r["date_debut"])
-        fin = parse(r["date_fin"]) if r["date_fin"] else now_tz()
-        h_jour += _overlap_heures(deb, fin, jd, jf)
-        h_sem += _overlap_heures(deb, fin, sd, sf)
+    # Ajustements manuels.
+    adj_jours = {r["cle"]: r["heures"] for r in db.execute(
+        "SELECT cle, heures FROM ajustements WHERE technicien_id = ? AND portee = 'jour'",
+        (tech_id,)).fetchall()}
+    row_sem = db.execute(
+        "SELECT heures FROM ajustements WHERE technicien_id = ? AND portee = 'semaine' AND cle = ?",
+        (tech_id, lundi.isoformat())).fetchone()
+    adj_semaine = row_sem["heures"] if row_sem else 0.0
 
-    # Heures de base (travail régulier) créditées aux membres d'équipe, Lun-Ven.
-    taux = db.execute(
-        """SELECT COALESCE(SUM(e.heures_jour), 0) AS t
-           FROM equipe_membres m JOIN equipes e ON m.equipe_id = e.id
-           WHERE m.technicien_id = ? AND e.actif = 1""",
-        (tech_id,),
-    ).fetchone()["t"]
-    if taux:
-        iso = ref_date.isoweekday()          # 1 = lundi ... 7 = dimanche
-        if iso <= 5:
-            h_jour += taux                    # jour ouvré : crédite le jour courant
-        h_sem += taux * min(iso, 5)           # semaine : jours ouvrés écoulés (Lun -> aujourd'hui)
+    def interv_jour(d):
+        jd = datetime.combine(d, dtime.min, tzinfo=TZ)
+        jf = jd + timedelta(days=1)
+        return sum(_overlap_heures(deb, fin, jd, jf) for deb, fin in deps)
+
+    def compte_jour(d, est_aujourdhui):
+        base = base_taux if d.isoweekday() <= 5 else 0.0
+        interv = interv_jour(d)
+        if est_aujourdhui:
+            tot = base + interv                     # jour en cours : pas d'arrondi
+        elif interv > 0:
+            tot = base + interv                     # jour passé avec dépannage : pas d'arrondi
+        else:
+            tot = arrondi_taux if base > 0 else 0.0  # jour ouvré passé sans dépannage : arrondi
+        return tot + adj_jours.get(d.isoformat(), 0.0)
+
+    h_jour = compte_jour(ref_date, True)
+
+    h_sem = adj_semaine
+    d = lundi
+    while d <= ref_date:
+        h_sem += compte_jour(d, d == ref_date)
+        d += timedelta(days=1)
 
     return {"jour": round(h_jour, 2), "semaine": round(h_sem, 2)}
+
+
+def _ajustements_actuels(db, tech_id, ref=None):
+    """(ajustement du jour, ajustement de la semaine) courants pour un technicien."""
+    ref = (ref or now_tz()).date()
+    lundi = ref - timedelta(days=ref.isoweekday() - 1)
+    aj_j = db.execute(
+        "SELECT heures FROM ajustements WHERE technicien_id = ? AND portee = 'jour' AND cle = ?",
+        (tech_id, ref.isoformat())).fetchone()
+    aj_s = db.execute(
+        "SELECT heures FROM ajustements WHERE technicien_id = ? AND portee = 'semaine' AND cle = ?",
+        (tech_id, lundi.isoformat())).fetchone()
+    return (aj_j["heures"] if aj_j else 0.0, aj_s["heures"] if aj_s else 0.0)
 
 
 def etat_horaire(h_jour, h_sem):
@@ -717,10 +785,12 @@ def api_etat():
 
     def carte_tech(t):
         h = heures_par_id.get(t["id"]) or heures_technicien(db, t["id"])
+        aj = _ajustements_actuels(db, t["id"])
         return {
             "id": t["id"], "nom": t["nom"], "telephone": t["telephone"],
             "statut": t["statut"], "couleur": t["couleur"], "role": t["role"],
             "heures_jour": h["jour"], "heures_semaine": h["semaine"],
+            "ajust_jour": aj[0], "ajust_semaine": aj[1],
             "etat": etat_horaire(h["jour"], h["semaine"]),
             "gardes": oncall.get(t["id"], []),
         }
@@ -1283,7 +1353,7 @@ def _membres_equipe(db, eid):
 def api_equipes():
     db = get_db()
     equipes = db.execute(
-        "SELECT id, nom, couleur, deux_colonnes, heures_jour, backup_general, alarme, actif FROM equipes ORDER BY actif DESC, nom"
+        "SELECT id, nom, couleur, deux_colonnes, heures_jour, heures_jour_arrondi, backup_general, alarme, actif FROM equipes ORDER BY actif DESC, nom"
     ).fetchall()
     out = []
     for e in equipes:
@@ -1302,6 +1372,7 @@ def api_creer_equipe():
     couleur = data.get("couleur") or "#1E3A8A"
     deux = 1 if data.get("deux_colonnes") else 0
     heures = _heures_valide(data.get("heures_jour"))
+    heures_arr = _heures_valide(data.get("heures_jour_arrondi"))
     bg = 1 if data.get("backup_general") else 0
     alarme = 1 if data.get("alarme") else 0
     membres = data.get("membres") or []
@@ -1309,7 +1380,7 @@ def api_creer_equipe():
         return jsonify({"erreur": "Le nom de l'équipe est obligatoire."}), 400
     if bg:
         db.execute("UPDATE equipes SET backup_general = 0")  # une seule équipe back-up général
-    cur = db.execute("INSERT INTO equipes (nom, couleur, deux_colonnes, heures_jour, backup_general, alarme) VALUES (?,?,?,?,?,?)", (nom, couleur, deux, heures, bg, alarme))
+    cur = db.execute("INSERT INTO equipes (nom, couleur, deux_colonnes, heures_jour, heures_jour_arrondi, backup_general, alarme) VALUES (?,?,?,?,?,?,?)", (nom, couleur, deux, heures, heures_arr, bg, alarme))
     eid = cur.lastrowid
     for tid in membres:
         db.execute("INSERT OR IGNORE INTO equipe_membres (equipe_id, technicien_id) VALUES (?,?)", (eid, tid))
@@ -1330,11 +1401,12 @@ def api_modifier_equipe(eid):
     couleur = data.get("couleur") or "#1E3A8A"
     deux = 1 if data.get("deux_colonnes") else 0
     heures = _heures_valide(data.get("heures_jour"))
+    heures_arr = _heures_valide(data.get("heures_jour_arrondi"))
     bg = 1 if data.get("backup_general") else 0
     alarme = 1 if data.get("alarme") else 0
     if bg:
         db.execute("UPDATE equipes SET backup_general = 0 WHERE id != ?", (eid,))
-    db.execute("UPDATE equipes SET nom = ?, couleur = ?, deux_colonnes = ?, heures_jour = ?, backup_general = ?, alarme = ? WHERE id = ?", (nom, couleur, deux, heures, bg, alarme, eid))
+    db.execute("UPDATE equipes SET nom = ?, couleur = ?, deux_colonnes = ?, heures_jour = ?, heures_jour_arrondi = ?, backup_general = ?, alarme = ? WHERE id = ?", (nom, couleur, deux, heures, heures_arr, bg, alarme, eid))
     if "membres" in data:
         db.execute("DELETE FROM equipe_membres WHERE equipe_id = ?", (eid,))
         for tid in (data.get("membres") or []):
@@ -1363,6 +1435,44 @@ def api_suppr_equipe(eid):
     db.execute("DELETE FROM astreintes WHERE equipe_id = ?", (eid,))
     db.execute("DELETE FROM equipe_membres WHERE equipe_id = ?", (eid,))
     db.execute("DELETE FROM equipes WHERE id = ?", (eid,))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/ajustement", methods=["POST"])
+@login_requis
+def api_ajustement():
+    """Ajuste manuellement les heures (jour ou semaine) d'un technicien.
+    Autorisé : l'admin pour tout le monde, un utilisateur pour lui-même."""
+    db = get_db()
+    u = courant(db)
+    data = request.get_json(force=True)
+    tech_id = data.get("technicien_id") or u["id"]
+    if u["role"] != "admin" and tech_id != u["id"]:
+        return jsonify({"erreur": "Non autorisé."}), 403
+    if not db.execute("SELECT 1 FROM techniciens WHERE id = ?", (tech_id,)).fetchone():
+        abort(404)
+    portee = data.get("portee")
+    if portee not in ("jour", "semaine"):
+        return jsonify({"erreur": "Portée invalide."}), 400
+    try:
+        d = datetime.strptime(data["jour"], "%Y-%m-%d").date() if data.get("jour") else now_tz().date()
+    except (ValueError, KeyError):
+        d = now_tz().date()
+    cle = d.isoformat() if portee == "jour" else (d - timedelta(days=d.isoweekday() - 1)).isoformat()
+    try:
+        h = round(float(str(data.get("heures")).replace(",", ".")), 2)
+    except (TypeError, ValueError):
+        return jsonify({"erreur": "Valeur d'heures invalide."}), 400
+    h = max(-100.0, min(h, 100.0))
+    if h == 0:
+        db.execute("DELETE FROM ajustements WHERE technicien_id = ? AND portee = ? AND cle = ?",
+                   (tech_id, portee, cle))
+    else:
+        db.execute(
+            """INSERT INTO ajustements (technicien_id, portee, cle, heures) VALUES (?,?,?,?)
+               ON CONFLICT(technicien_id, portee, cle) DO UPDATE SET heures = excluded.heures""",
+            (tech_id, portee, cle, h))
     db.commit()
     return jsonify({"ok": True})
 

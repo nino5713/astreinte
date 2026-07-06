@@ -437,6 +437,7 @@ a { color: inherit; }
 
 /* Pastille de couleur d'un technicien */
 .pt-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 7px; vertical-align: middle; }
+.ajust-lien { width: 100%; margin-top: 10px; font-size: 13px; }
 /* Postes d'astreinte sur les cartes du tableau de bord */
 .postes { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .poste-tag { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 999px; border: 1.5px solid; background: #fff; }

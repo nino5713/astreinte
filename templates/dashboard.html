@@ -76,6 +76,30 @@
     </div>
   </div>
 </div>
+<!-- Modale : ajuster les heures -->
+<div class="overlay" id="modale-ajust">
+  <div class="modale">
+    <div class="tete"><h3 id="ajust-titre">Ajuster les heures</h3><button class="fermer" data-fermer>×</button></div>
+    <div class="corps">
+      <div class="champ">
+        <label>Portée</label>
+        <div class="segment" id="ajust-portee">
+          <label><input type="radio" name="ajportee" value="jour" checked><span>Aujourd'hui</span></label>
+          <label><input type="radio" name="ajportee" value="semaine"><span>Cette semaine</span></label>
+        </div>
+      </div>
+      <div class="champ">
+        <label>Correction (heures, + ou −)</label>
+        <input type="number" id="ajust-heures" step="0.5" placeholder="Ex. 1 ou -2">
+        <p class="aide-role">Cette correction s'ajoute (ou se retire) au total calculé. Mettre 0 pour l'annuler.</p>
+      </div>
+    </div>
+    <div class="pied">
+      <button class="btn fantome" data-fermer>Annuler</button>
+      <button class="btn primaire" id="btn-ajust">Enregistrer</button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
