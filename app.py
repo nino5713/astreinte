@@ -827,6 +827,12 @@ def api_etat():
                             if g["equipe_id"] in equipes_alarme}
     je_recois_alertes = u["id"] in destinataires_alarme
 
+    # Admin/dispatcher : tous les dépannages (en cours + terminés, sans limite de date).
+    # Autres : les actifs + les terminés des 7 derniers jours.
+    if u["role"] in ("dispatcher", "admin"):
+        seuil = "0000-01-01"
+    else:
+        seuil = iso(now_tz() - timedelta(days=7))
     deps = db.execute(
         """SELECT d.*, t.nom AS technicien_nom
            FROM depannages d LEFT JOIN techniciens t ON d.technicien_id = t.id
@@ -835,8 +841,9 @@ def api_etat():
              CASE d.statut WHEN 'en_cours' THEN 0 WHEN 'assigne' THEN 1
                            WHEN 'nouveau' THEN 2 ELSE 3 END,
              CASE d.priorite WHEN 'critique' THEN 0 WHEN 'urgente' THEN 1 ELSE 2 END,
-             d.date_creation DESC""",
-        (iso(now_tz() - timedelta(days=7)),),
+             COALESCE(d.date_fin, d.date_creation) DESC
+           LIMIT 800""",
+        (seuil,),
     ).fetchall()
 
     return jsonify({

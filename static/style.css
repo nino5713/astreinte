@@ -441,6 +441,7 @@ a { color: inherit; }
 .carte-dep.fini { opacity: .85; }
 .carte-dep.fini .bande { background: var(--dispo, #16A34A); }
 .tag.st-termine { background: var(--dispo-bg, #DCFCE7); color: var(--dispo, #16A34A); }
+#liste-dep-fini { max-height: 60vh; overflow-y: auto; }
 /* Postes d'astreinte sur les cartes du tableau de bord */
 .postes { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .poste-tag { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 999px; border: 1.5px solid; background: #fff; }
