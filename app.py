@@ -563,6 +563,47 @@ def api_admin_role(uid):
     return jsonify({"ok": True})
 
 
+@app.route("/api/admin/utilisateur/<int:uid>", methods=["POST"])
+@admin_requis
+def api_admin_modifier(uid):
+    """Modifie nom, téléphone, rôle (et éventuellement PIN et couleur) d'un utilisateur."""
+    db = get_db()
+    cible = db.execute("SELECT * FROM techniciens WHERE id = ?", (uid,)).fetchone()
+    if not cible:
+        abort(404)
+    data = request.get_json(force=True)
+    nom = (data.get("nom") or "").strip()
+    role = data.get("role", cible["role"])
+    tel = (data.get("telephone") or "").strip()
+    if not nom:
+        return jsonify({"erreur": "Le nom est obligatoire."}), 400
+    if role not in ROLES:
+        return jsonify({"erreur": "Rôle invalide."}), 400
+    doublon = db.execute(
+        "SELECT 1 FROM techniciens WHERE nom = ? AND actif = 1 AND id != ?", (nom, uid)
+    ).fetchone()
+    if doublon:
+        return jsonify({"erreur": "Un autre utilisateur actif porte déjà ce nom."}), 400
+    if cible["role"] == "admin" and role != "admin" and _compte_admins(db, sauf=uid) == 0:
+        return jsonify({"erreur": "Impossible : c'est le dernier administrateur actif."}), 400
+
+    db.execute("UPDATE techniciens SET nom = ?, telephone = ?, role = ? WHERE id = ?",
+               (nom, tel, role, uid))
+
+    pin = (data.get("pin") or "").strip()
+    if pin:
+        if len(pin) < 4:
+            return jsonify({"erreur": "Le code PIN doit faire au moins 4 caractères."}), 400
+        db.execute("UPDATE techniciens SET pin_hash = ? WHERE id = ?", (generate_password_hash(pin), uid))
+
+    couleur = data.get("couleur")
+    if couleur:
+        db.execute("UPDATE techniciens SET couleur = ? WHERE id = ?", (couleur, uid))
+
+    db.commit()
+    return jsonify({"ok": True})
+
+
 @app.route("/api/admin/utilisateur/<int:uid>/actif", methods=["POST"])
 @admin_requis
 def api_admin_actif(uid):
