@@ -627,9 +627,10 @@ async function chargerEquipes() {
     const badge = e.deux_colonnes ? `<span class="eq-badge">Titulaire + Back-up</span>` : "";
     const badgeH = e.heures_jour ? `<span class="eq-badge heures">${(+e.heures_jour).toString().replace('.', ',')} h/jour</span>` : "";
     const badgeBG = e.backup_general ? `<span class="eq-badge bg">Back-up général</span>` : "";
+    const badgeAl = e.alarme ? `<span class="eq-badge alarme">🔔 Alarme</span>` : "";
     return `<div class="carte-equipe" style="border-left:5px solid ${e.couleur}">
       <div class="eq-tete">
-        <div class="eq-nom">${ech(e.nom)} ${badge} ${badgeH} ${badgeBG}</div>
+        <div class="eq-nom">${ech(e.nom)} ${badge} ${badgeH} ${badgeBG} ${badgeAl}</div>
         <div class="eq-actions">
           <button class="btn" onclick="ouvrirEditionEquipe(${e.id})">Modifier</button>
           <button class="btn danger" onclick="supprimerEquipe(${e.id}, '${ech(e.nom).replace(/'/g, "\\'")}')">Supprimer</button>
@@ -647,6 +648,7 @@ async function ouvrirNouvelleEquipe() {
   document.getElementById("e-deux").checked = false;
   document.getElementById("e-heures").value = "";
   document.getElementById("e-backup-general").checked = false;
+  document.getElementById("e-alarme").checked = false;
   _couleurChoisie = COULEURS_EQUIPE[0];
   await rendreSelecteurEquipe([]);
   ouvrir("modale-equipe");
@@ -664,6 +666,7 @@ async function ouvrirEditionEquipe(id) {
   document.getElementById("e-deux").checked = !!eq.deux_colonnes;
   document.getElementById("e-heures").value = eq.heures_jour ? eq.heures_jour : "";
   document.getElementById("e-backup-general").checked = !!eq.backup_general;
+  document.getElementById("e-alarme").checked = !!eq.alarme;
   _couleurChoisie = eq.couleur;
   await rendreSelecteurEquipe(eq.membres.map((m) => m.id));
   ouvrir("modale-equipe");
@@ -700,6 +703,7 @@ async function enregistrerEquipe() {
     deux_colonnes: document.getElementById("e-deux").checked ? 1 : 0,
     heures_jour: document.getElementById("e-heures").value || 0,
     backup_general: document.getElementById("e-backup-general").checked ? 1 : 0,
+    alarme: document.getElementById("e-alarme").checked ? 1 : 0,
   };
   const url = _equipeEdit ? `/api/admin/equipe/${_equipeEdit}` : "/api/admin/equipe";
   try { await api(url, "POST", corps); fermer("modale-equipe"); chargerEquipes(); }

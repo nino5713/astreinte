@@ -445,6 +445,7 @@ a { color: inherit; }
   padding: 2px 8px; border-radius: 6px; text-transform: uppercase; letter-spacing: .03em; vertical-align: middle; }
 .eq-badge.heures { color: #0D9488; background: #CCFBF1; }
 .eq-badge.bg { color: #9333EA; background: #F3E8FF; }
+.eq-badge.alarme { color: #B91C1C; background: #FEE2E2; }
 .membre-choix .r-tag { font-style: normal; font-size: 11px; font-weight: 700; color: var(--socom);
   background: var(--repos-bg); padding: 1px 6px; border-radius: 5px; margin-left: 4px; }
 

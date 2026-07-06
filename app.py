@@ -137,6 +137,7 @@ def init_db():
             deux_colonnes INTEGER NOT NULL DEFAULT 0,   -- 1 = colonne Back-up
             heures_jour REAL NOT NULL DEFAULT 0,        -- heures créditées Lun-Ven aux membres
             backup_general INTEGER NOT NULL DEFAULT 0,  -- 1 = équipe de back-up général (unique)
+            alarme INTEGER NOT NULL DEFAULT 0,          -- 1 = les astreintes de cette équipe reçoivent les alertes quota
             actif INTEGER NOT NULL DEFAULT 1
         );
 
@@ -161,6 +162,7 @@ def init_db():
     _migration_equipe_double(db)
     _migration_equipe_heures(db)
     _migration_equipe_backup_general(db)
+    _migration_equipe_alarme(db)
     _migration_tech_couleur(db)
     # Jeu de données initial (uniquement si vide)
     n = db.execute("SELECT COUNT(*) AS c FROM techniciens").fetchone()["c"]
@@ -244,6 +246,14 @@ def _migration_equipe_backup_general(db):
     cols = [r[1] for r in db.execute("PRAGMA table_info(equipes)").fetchall()]
     if "backup_general" not in cols:
         db.execute("ALTER TABLE equipes ADD COLUMN backup_general INTEGER NOT NULL DEFAULT 0")
+        db.commit()
+
+
+def _migration_equipe_alarme(db):
+    """Ajoute la colonne alarme à equipes si absente."""
+    cols = [r[1] for r in db.execute("PRAGMA table_info(equipes)").fetchall()]
+    if "alarme" not in cols:
+        db.execute("ALTER TABLE equipes ADD COLUMN alarme INTEGER NOT NULL DEFAULT 0")
         db.commit()
 
 
@@ -698,14 +708,13 @@ def api_etat():
             })
     alertes.sort(key=lambda a: min(a["reste_jour"], a["reste_semaine"]))
 
-    # Destinataires des alertes : dispatchers/admins, la personne d'astreinte du jour,
-    # et les membres de l'équipe de back-up général.
-    bg_ids = {r["technicien_id"] for r in db.execute(
-        """SELECT m.technicien_id FROM equipe_membres m
-           JOIN equipes e ON m.equipe_id = e.id
-           WHERE e.backup_general = 1 AND e.actif = 1""").fetchall()}
-    je_recois_alertes = (u["role"] in ("dispatcher", "admin")
-                         or u["id"] in oncall or u["id"] in bg_ids)
+    # Destinataires des alertes : les personnes d'astreinte AUJOURD'HUI dans une
+    # équipe dont la case « Alarme » est cochée.
+    equipes_alarme = {r["id"] for r in db.execute(
+        "SELECT id FROM equipes WHERE alarme = 1 AND actif = 1").fetchall()}
+    destinataires_alarme = {g["technicien_id"] for g in gardes
+                            if g["equipe_id"] in equipes_alarme}
+    je_recois_alertes = u["id"] in destinataires_alarme
 
     deps = db.execute(
         """SELECT d.*, t.nom AS technicien_nom
@@ -1233,7 +1242,7 @@ def _membres_equipe(db, eid):
 def api_equipes():
     db = get_db()
     equipes = db.execute(
-        "SELECT id, nom, couleur, deux_colonnes, heures_jour, backup_general, actif FROM equipes ORDER BY actif DESC, nom"
+        "SELECT id, nom, couleur, deux_colonnes, heures_jour, backup_general, alarme, actif FROM equipes ORDER BY actif DESC, nom"
     ).fetchall()
     out = []
     for e in equipes:
@@ -1253,12 +1262,13 @@ def api_creer_equipe():
     deux = 1 if data.get("deux_colonnes") else 0
     heures = _heures_valide(data.get("heures_jour"))
     bg = 1 if data.get("backup_general") else 0
+    alarme = 1 if data.get("alarme") else 0
     membres = data.get("membres") or []
     if not nom:
         return jsonify({"erreur": "Le nom de l'équipe est obligatoire."}), 400
     if bg:
         db.execute("UPDATE equipes SET backup_general = 0")  # une seule équipe back-up général
-    cur = db.execute("INSERT INTO equipes (nom, couleur, deux_colonnes, heures_jour, backup_general) VALUES (?,?,?,?,?)", (nom, couleur, deux, heures, bg))
+    cur = db.execute("INSERT INTO equipes (nom, couleur, deux_colonnes, heures_jour, backup_general, alarme) VALUES (?,?,?,?,?,?)", (nom, couleur, deux, heures, bg, alarme))
     eid = cur.lastrowid
     for tid in membres:
         db.execute("INSERT OR IGNORE INTO equipe_membres (equipe_id, technicien_id) VALUES (?,?)", (eid, tid))
@@ -1280,9 +1290,10 @@ def api_modifier_equipe(eid):
     deux = 1 if data.get("deux_colonnes") else 0
     heures = _heures_valide(data.get("heures_jour"))
     bg = 1 if data.get("backup_general") else 0
+    alarme = 1 if data.get("alarme") else 0
     if bg:
         db.execute("UPDATE equipes SET backup_general = 0 WHERE id != ?", (eid,))
-    db.execute("UPDATE equipes SET nom = ?, couleur = ?, deux_colonnes = ?, heures_jour = ?, backup_general = ? WHERE id = ?", (nom, couleur, deux, heures, bg, eid))
+    db.execute("UPDATE equipes SET nom = ?, couleur = ?, deux_colonnes = ?, heures_jour = ?, backup_general = ?, alarme = ? WHERE id = ?", (nom, couleur, deux, heures, bg, alarme, eid))
     if "membres" in data:
         db.execute("DELETE FROM equipe_membres WHERE equipe_id = ?", (eid,))
         for tid in (data.get("membres") or []):
