@@ -255,6 +255,51 @@ function rendreDepannagesDispatch(etat) {
       </div>
     </div>`;
   }).join("");
+
+  // Dépannages terminés (récents)
+  const finis = etat.depannages
+    .filter((d) => d.statut === "termine")
+    .sort((a, b) => (b.date_fin || "").localeCompare(a.date_fin || ""));
+  document.getElementById("compte-dep-fini").textContent = finis.length;
+  const lf = document.getElementById("liste-dep-fini");
+  lf.innerHTML = finis.length ? finis.map(carteDepFinie).join("")
+    : `<div class="vide">Aucun dépannage terminé récemment.</div>`;
+}
+
+function dureeInterv(deb, fin) {
+  if (!deb || !fin) return "";
+  const ms = new Date(fin) - new Date(deb);
+  if (ms <= 0) return "";
+  const min = Math.round(ms / 60000);
+  const h = Math.floor(min / 60), m = min % 60;
+  return h ? `${h} h ${String(m).padStart(2, "0")}` : `${m} min`;
+}
+
+function carteDepFinie(d) {
+  const duree = dureeInterv(d.date_debut, d.date_fin);
+  return `<div class="carte-dep fini pri-${d.priorite}">
+    <div class="bande"></div>
+    <div class="infos">
+      <div class="haut">
+        <span class="client">${ech(d.client)}</span>
+        <span class="tag st-termine">Terminé</span>
+      </div>
+      ${d.lieu ? `<div class="lieu">${ech(d.lieu)}</div>` : ""}
+      ${d.description ? `<div class="desc">${ech(d.description)}</div>` : ""}
+      <div class="meta">
+        ${d.technicien_nom ? `<span><b>Tech.</b> ${ech(d.technicien_nom)}</span>` : ""}
+        ${d.date_fin ? `<span>Terminé le ${fmtDateHeure(d.date_fin)}</span>` : ""}
+        ${duree ? `<span><b>Durée</b> ${duree}</span>` : ""}
+      </div>
+    </div>
+  </div>`;
+}
+
+function fmtDateHeure(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) + " " +
+         d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
 }
 
 function majChronos() {
@@ -390,6 +435,14 @@ function rendreMesDepannages(etat) {
   const libEl = document.getElementById("depannages-libres");
   libEl.innerHTML = libres.length ? libres.map((d) => carteDepTech(d, false)).join("")
     : `<div class="vide">Rien à prendre pour le moment.</div>`;
+
+  const finis = etat.depannages
+    .filter((d) => d.technicien_id === window.MOI && d.statut === "termine")
+    .sort((a, b) => (b.date_fin || "").localeCompare(a.date_fin || ""));
+  const finEl = document.getElementById("mes-depannages-finis");
+  document.getElementById("compte-mes-finis").textContent = finis.length;
+  if (finEl) finEl.innerHTML = finis.length ? finis.map(carteDepFinie).join("")
+    : `<div class="vide">Aucune intervention terminée récemment.</div>`;
 }
 
 function carteDepTech(d, estMien) {
