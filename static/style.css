@@ -444,6 +444,21 @@ a { color: inherit; }
 .eq-badge { font-size: 10.5px; font-weight: 700; color: var(--depann); background: var(--depann-bg);
   padding: 2px 8px; border-radius: 6px; text-transform: uppercase; letter-spacing: .03em; vertical-align: middle; }
 .eq-badge.heures { color: #0D9488; background: #CCFBF1; }
+.eq-badge.bg { color: #9333EA; background: #F3E8FF; }
+.membre-choix .r-tag { font-style: normal; font-size: 11px; font-weight: 700; color: var(--socom);
+  background: var(--repos-bg); padding: 1px 6px; border-radius: 5px; margin-left: 4px; }
+
+/* Bannière d'alerte de quota */
+.zone-alertes { background: #FEF2F2; border: 1px solid #FECACA; border-left: 5px solid var(--depann);
+  border-radius: 12px; padding: 14px 16px; margin-bottom: 18px; }
+.alertes-tete { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-weight: 800; color: var(--depann); font-size: 15px; }
+.alertes-tete .ico { font-size: 18px; }
+.btn-notif { margin-left: auto; font-size: 12px; font-weight: 700; cursor: pointer;
+  background: #fff; color: var(--depann); border: 1px solid #FECACA; border-radius: 8px; padding: 5px 10px; }
+.alertes-liste { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
+.alertes-liste li { font-size: 13.5px; color: #7F1D1D; display: flex; align-items: center; }
+.alertes-liste li b { color: #991B1B; margin-right: 2px; }
 .case-option { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; font-weight: 400 !important; }
 .case-option input { width: 18px; height: 18px; margin-top: 1px; accent-color: var(--socom); flex-shrink: 0; }
 .bandeau-astreinte .bk { color: #C7D2FE; font-weight: 500; }

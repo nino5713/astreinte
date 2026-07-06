@@ -35,6 +35,7 @@ MAX_H_JOUR = 10.0
 MAX_H_SEMAINE = 48.0
 ALERTE_H_JOUR = 8.0        # ambre au-delà
 ALERTE_H_SEMAINE = 40.0    # ambre au-delà
+SEUIL_ALERTE_RESTE = 1.0   # alerte quand il reste <= 1h sur le quota jour ou semaine
 
 STATUTS_TECH = ["disponible", "en_depannage", "repos", "indisponible"]
 STATUTS_DEP = ["nouveau", "assigne", "en_cours", "termine", "annule"]
@@ -135,6 +136,7 @@ def init_db():
             couleur TEXT NOT NULL DEFAULT '#1E3A8A',
             deux_colonnes INTEGER NOT NULL DEFAULT 0,   -- 1 = colonne Back-up
             heures_jour REAL NOT NULL DEFAULT 0,        -- heures créditées Lun-Ven aux membres
+            backup_general INTEGER NOT NULL DEFAULT 0,  -- 1 = équipe de back-up général (unique)
             actif INTEGER NOT NULL DEFAULT 1
         );
 
@@ -158,6 +160,7 @@ def init_db():
     _migration_astreintes_equipes(db)
     _migration_equipe_double(db)
     _migration_equipe_heures(db)
+    _migration_equipe_backup_general(db)
     _migration_tech_couleur(db)
     # Jeu de données initial (uniquement si vide)
     n = db.execute("SELECT COUNT(*) AS c FROM techniciens").fetchone()["c"]
@@ -233,6 +236,14 @@ def _migration_equipe_heures(db):
     cols = [r[1] for r in db.execute("PRAGMA table_info(equipes)").fetchall()]
     if "heures_jour" not in cols:
         db.execute("ALTER TABLE equipes ADD COLUMN heures_jour REAL NOT NULL DEFAULT 0")
+        db.commit()
+
+
+def _migration_equipe_backup_general(db):
+    """Ajoute la colonne backup_general à equipes si absente."""
+    cols = [r[1] for r in db.execute("PRAGMA table_info(equipes)").fetchall()]
+    if "backup_general" not in cols:
+        db.execute("ALTER TABLE equipes ADD COLUMN backup_general INTEGER NOT NULL DEFAULT 0")
         db.commit()
 
 
@@ -649,24 +660,52 @@ def api_etat():
             "slot": g["slot"],
         })
 
+    # Heures (jour/semaine) précalculées pour tous les membres actifs.
+    membres_actifs = [t for t in techs if t["role"] in ("technicien", "dispatcher")]
+    heures_par_id = {t["id"]: heures_technicien(db, t["id"]) for t in membres_actifs}
+
     def carte_tech(t):
-        h = heures_technicien(db, t["id"])
+        h = heures_par_id.get(t["id"]) or heures_technicien(db, t["id"])
         return {
             "id": t["id"], "nom": t["nom"], "telephone": t["telephone"],
-            "statut": t["statut"], "couleur": t["couleur"],
+            "statut": t["statut"], "couleur": t["couleur"], "role": t["role"],
             "heures_jour": h["jour"], "heures_semaine": h["semaine"],
             "etat": etat_horaire(h["jour"], h["semaine"]),
             "gardes": oncall.get(t["id"], []),
         }
 
-    # Tableau de bord : uniquement les techniciens d'astreinte aujourd'hui.
-    techs_out = [carte_tech(t) for t in techs
-                 if t["role"] == "technicien" and t["id"] in oncall]
+    # Tableau de bord : les personnes d'astreinte aujourd'hui (techniciens ET dispatchers).
+    techs_out = [carte_tech(t) for t in membres_actifs if t["id"] in oncall]
 
-    # Carte personnelle (pour la vue technicien, qu'il soit d'astreinte ou non).
+    # Carte personnelle (vue technicien), pour techniciens et dispatchers.
     moi = None
-    if u["role"] == "technicien":
+    if u["role"] in ("technicien", "dispatcher"):
         moi = carte_tech(u)
+
+    # Alertes de quota : technicien/dispatcher à qui il reste <= 1h sur le jour ou la semaine.
+    alertes = []
+    for t in membres_actifs:
+        h = heures_par_id[t["id"]]
+        reste_j = MAX_H_JOUR - h["jour"]
+        reste_s = MAX_H_SEMAINE - h["semaine"]
+        if reste_j <= SEUIL_ALERTE_RESTE or reste_s <= SEUIL_ALERTE_RESTE:
+            alertes.append({
+                "id": t["id"], "nom": t["nom"], "couleur": t["couleur"],
+                "reste_jour": round(max(reste_j, 0), 2),
+                "reste_semaine": round(max(reste_s, 0), 2),
+                "depasse_jour": h["jour"] >= MAX_H_JOUR,
+                "depasse_semaine": h["semaine"] >= MAX_H_SEMAINE,
+            })
+    alertes.sort(key=lambda a: min(a["reste_jour"], a["reste_semaine"]))
+
+    # Destinataires des alertes : dispatchers/admins, la personne d'astreinte du jour,
+    # et les membres de l'équipe de back-up général.
+    bg_ids = {r["technicien_id"] for r in db.execute(
+        """SELECT m.technicien_id FROM equipe_membres m
+           JOIN equipes e ON m.equipe_id = e.id
+           WHERE e.backup_general = 1 AND e.actif = 1""").fetchall()}
+    je_recois_alertes = (u["role"] in ("dispatcher", "admin")
+                         or u["id"] in oncall or u["id"] in bg_ids)
 
     deps = db.execute(
         """SELECT d.*, t.nom AS technicien_nom
@@ -685,6 +724,8 @@ def api_etat():
         "utilisateur": {"id": u["id"], "nom": u["nom"], "role": u["role"]},
         "techniciens": techs_out,
         "moi": moi,
+        "alertes": alertes,
+        "je_recois_alertes": je_recois_alertes,
         "depannages": [serialise_depannage(d) for d in deps],
         "plafonds": {
             "max_jour": MAX_H_JOUR, "max_semaine": MAX_H_SEMAINE,
@@ -934,7 +975,7 @@ def api_equipes_light():
     """Équipes actives + membres + option deux colonnes (pour le planning)."""
     db = get_db()
     rows = db.execute(
-        "SELECT id, nom, couleur, deux_colonnes, heures_jour FROM equipes WHERE actif = 1 ORDER BY nom"
+        "SELECT id, nom, couleur, deux_colonnes, heures_jour, backup_general FROM equipes WHERE actif = 1 ORDER BY nom"
     ).fetchall()
     out = []
     for e in rows:
@@ -956,7 +997,7 @@ def _hex_xl(couleur):
 def _colonnes_planning(db):
     """Liste ordonnée des colonnes (equipe, slot) du planning."""
     equipes = db.execute(
-        "SELECT id, nom, couleur, deux_colonnes, heures_jour FROM equipes WHERE actif = 1 ORDER BY nom"
+        "SELECT id, nom, couleur, deux_colonnes, heures_jour, backup_general FROM equipes WHERE actif = 1 ORDER BY nom"
     ).fetchall()
     cols = []
     for e in equipes:
@@ -1192,7 +1233,7 @@ def _membres_equipe(db, eid):
 def api_equipes():
     db = get_db()
     equipes = db.execute(
-        "SELECT id, nom, couleur, deux_colonnes, heures_jour, actif FROM equipes ORDER BY actif DESC, nom"
+        "SELECT id, nom, couleur, deux_colonnes, heures_jour, backup_general, actif FROM equipes ORDER BY actif DESC, nom"
     ).fetchall()
     out = []
     for e in equipes:
@@ -1211,10 +1252,13 @@ def api_creer_equipe():
     couleur = data.get("couleur") or "#1E3A8A"
     deux = 1 if data.get("deux_colonnes") else 0
     heures = _heures_valide(data.get("heures_jour"))
+    bg = 1 if data.get("backup_general") else 0
     membres = data.get("membres") or []
     if not nom:
         return jsonify({"erreur": "Le nom de l'équipe est obligatoire."}), 400
-    cur = db.execute("INSERT INTO equipes (nom, couleur, deux_colonnes, heures_jour) VALUES (?,?,?,?)", (nom, couleur, deux, heures))
+    if bg:
+        db.execute("UPDATE equipes SET backup_general = 0")  # une seule équipe back-up général
+    cur = db.execute("INSERT INTO equipes (nom, couleur, deux_colonnes, heures_jour, backup_general) VALUES (?,?,?,?,?)", (nom, couleur, deux, heures, bg))
     eid = cur.lastrowid
     for tid in membres:
         db.execute("INSERT OR IGNORE INTO equipe_membres (equipe_id, technicien_id) VALUES (?,?)", (eid, tid))
@@ -1235,7 +1279,10 @@ def api_modifier_equipe(eid):
     couleur = data.get("couleur") or "#1E3A8A"
     deux = 1 if data.get("deux_colonnes") else 0
     heures = _heures_valide(data.get("heures_jour"))
-    db.execute("UPDATE equipes SET nom = ?, couleur = ?, deux_colonnes = ?, heures_jour = ? WHERE id = ?", (nom, couleur, deux, heures, eid))
+    bg = 1 if data.get("backup_general") else 0
+    if bg:
+        db.execute("UPDATE equipes SET backup_general = 0 WHERE id != ?", (eid,))
+    db.execute("UPDATE equipes SET nom = ?, couleur = ?, deux_colonnes = ?, heures_jour = ?, backup_general = ? WHERE id = ?", (nom, couleur, deux, heures, bg, eid))
     if "membres" in data:
         db.execute("DELETE FROM equipe_membres WHERE equipe_id = ?", (eid,))
         for tid in (data.get("membres") or []):
@@ -1273,7 +1320,7 @@ def api_suppr_equipe(eid):
 def api_techniciens():
     db = get_db()
     rows = db.execute(
-        "SELECT id, nom, telephone, role, statut FROM techniciens WHERE actif = 1 AND role = 'technicien' ORDER BY nom"
+        "SELECT id, nom, telephone, role, statut FROM techniciens WHERE actif = 1 AND role IN ('technicien','dispatcher') ORDER BY role DESC, nom"
     ).fetchall()
     return jsonify([dict(r) for r in rows])
 

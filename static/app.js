@@ -99,9 +99,53 @@ function demarrerDashboard() {
 async function rafraichirDashboard() {
   try {
     _etat = await api("/api/etat");
+    rendreAlertes(_etat);
     rendreTechniciens(_etat);
     rendreDepannagesDispatch(_etat);
   } catch (e) { console.error(e); }
+}
+
+/* Alertes de quota (partagées dashboard + vue technicien) */
+let _alertesConnues = null;
+
+function rendreAlertes(etat) {
+  const zone = document.getElementById("zone-alertes");
+  if (!zone) return;
+  const alertes = etat.alertes || [];
+  if (!etat.je_recois_alertes || !alertes.length) { zone.innerHTML = ""; return; }
+  const items = alertes.map((a) => {
+    const bits = [];
+    bits.push(a.depasse_jour ? "plafond du jour atteint" : `${fmtH(a.reste_jour)} restantes aujourd'hui`);
+    bits.push(a.depasse_semaine ? "plafond de la semaine atteint" : `${fmtH(a.reste_semaine)} restantes cette semaine`);
+    return `<li><span class="pt-dot" style="background:${a.couleur}"></span><b>${ech(a.nom)}</b> — ${bits.join(" · ")}</li>`;
+  }).join("");
+  const btnNotif = ("Notification" in window && Notification.permission === "default")
+    ? `<button class="btn-notif" onclick="activerNotifications()">🔔 Activer les notifications</button>` : "";
+  zone.innerHTML = `<div class="zone-alertes">
+    <div class="alertes-tete"><span class="ico">⚠</span> Quota horaire bientôt atteint ${btnNotif}</div>
+    <ul class="alertes-liste">${items}</ul></div>`;
+  notifierNouvelles(alertes);
+}
+
+function notifierNouvelles(alertes) {
+  const ids = new Set(alertes.map((a) => a.id));
+  if (_alertesConnues === null) { _alertesConnues = ids; return; } // 1er passage : pas de notif
+  if ("Notification" in window && Notification.permission === "granted") {
+    alertes.forEach((a) => {
+      if (!_alertesConnues.has(a.id)) {
+        const msg = a.depasse_jour || a.depasse_semaine
+          ? `${a.nom} a atteint son plafond horaire.`
+          : `${a.nom} : il reste ${fmtH(Math.min(a.reste_jour, a.reste_semaine))} avant le plafond.`;
+        try { new Notification("SOCOM Astreinte", { body: msg, tag: "quota-" + a.id }); } catch (e) {}
+      }
+    });
+  }
+  _alertesConnues = ids;
+}
+
+function activerNotifications() {
+  if (!("Notification" in window)) { alert("Ce navigateur ne gère pas les notifications."); return; }
+  Notification.requestPermission().then(() => { if (_etat) rendreAlertes(_etat); });
 }
 
 
@@ -263,6 +307,7 @@ async function rafraichirTech() {
   try {
     const etat = await api("/api/etat");
     _etat = etat;
+    rendreAlertes(etat);
     if (etat.moi) rendreMonStatut(etat.moi, etat.plafonds);
     rendreMesDepannages(etat);
   } catch (e) { console.error(e); }
@@ -581,9 +626,10 @@ async function chargerEquipes() {
       : `<span style="color:var(--ardoise-clair);font-size:13px">Aucun technicien</span>`;
     const badge = e.deux_colonnes ? `<span class="eq-badge">Titulaire + Back-up</span>` : "";
     const badgeH = e.heures_jour ? `<span class="eq-badge heures">${(+e.heures_jour).toString().replace('.', ',')} h/jour</span>` : "";
+    const badgeBG = e.backup_general ? `<span class="eq-badge bg">Back-up général</span>` : "";
     return `<div class="carte-equipe" style="border-left:5px solid ${e.couleur}">
       <div class="eq-tete">
-        <div class="eq-nom">${ech(e.nom)} ${badge} ${badgeH}</div>
+        <div class="eq-nom">${ech(e.nom)} ${badge} ${badgeH} ${badgeBG}</div>
         <div class="eq-actions">
           <button class="btn" onclick="ouvrirEditionEquipe(${e.id})">Modifier</button>
           <button class="btn danger" onclick="supprimerEquipe(${e.id}, '${ech(e.nom).replace(/'/g, "\\'")}')">Supprimer</button>
@@ -600,6 +646,7 @@ async function ouvrirNouvelleEquipe() {
   document.getElementById("e-nom").value = "";
   document.getElementById("e-deux").checked = false;
   document.getElementById("e-heures").value = "";
+  document.getElementById("e-backup-general").checked = false;
   _couleurChoisie = COULEURS_EQUIPE[0];
   await rendreSelecteurEquipe([]);
   ouvrir("modale-equipe");
@@ -616,6 +663,7 @@ async function ouvrirEditionEquipe(id) {
   document.getElementById("e-nom").value = eq.nom;
   document.getElementById("e-deux").checked = !!eq.deux_colonnes;
   document.getElementById("e-heures").value = eq.heures_jour ? eq.heures_jour : "";
+  document.getElementById("e-backup-general").checked = !!eq.backup_general;
   _couleurChoisie = eq.couleur;
   await rendreSelecteurEquipe(eq.membres.map((m) => m.id));
   ouvrir("modale-equipe");
@@ -632,8 +680,8 @@ async function rendreSelecteurEquipe(idsSelectionnes) {
   document.getElementById("e-membres").innerHTML = _techsDispo.length
     ? _techsDispo.map((t) => `<label class="membre-choix">
         <input type="checkbox" value="${t.id}" ${set.has(t.id) ? "checked" : ""}>
-        <span>${ech(t.nom)}</span></label>`).join("")
-    : `<span style="color:var(--ardoise-clair);font-size:13px">Aucun technicien. Créez d'abord des utilisateurs de rôle technicien.</span>`;
+        <span>${ech(t.nom)}${t.role === "dispatcher" ? ' <em class="r-tag">dispatcher</em>' : ""}</span></label>`).join("")
+    : `<span style="color:var(--ardoise-clair);font-size:13px">Aucun technicien ni dispatcher. Créez d'abord des utilisateurs.</span>`;
 }
 
 function choisirCouleur(c) {
@@ -651,6 +699,7 @@ async function enregistrerEquipe() {
     nom, couleur: _couleurChoisie, membres,
     deux_colonnes: document.getElementById("e-deux").checked ? 1 : 0,
     heures_jour: document.getElementById("e-heures").value || 0,
+    backup_general: document.getElementById("e-backup-general").checked ? 1 : 0,
   };
   const url = _equipeEdit ? `/api/admin/equipe/${_equipeEdit}` : "/api/admin/equipe";
   try { await api(url, "POST", corps); fermer("modale-equipe"); chargerEquipes(); }
