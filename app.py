@@ -836,7 +836,7 @@ def api_etat():
                            WHEN 'nouveau' THEN 2 ELSE 3 END,
              CASE d.priorite WHEN 'critique' THEN 0 WHEN 'urgente' THEN 1 ELSE 2 END,
              d.date_creation DESC""",
-        (iso(now_tz() - timedelta(hours=12)),),
+        (iso(now_tz() - timedelta(days=7)),),
     ).fetchall()
 
     return jsonify({
