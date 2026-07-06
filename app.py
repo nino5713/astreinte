@@ -134,6 +134,7 @@ def init_db():
             nom TEXT NOT NULL,
             couleur TEXT NOT NULL DEFAULT '#1E3A8A',
             deux_colonnes INTEGER NOT NULL DEFAULT 0,   -- 1 = colonne Back-up
+            heures_jour REAL NOT NULL DEFAULT 0,        -- heures créditées Lun-Ven aux membres
             actif INTEGER NOT NULL DEFAULT 1
         );
 
@@ -156,6 +157,7 @@ def init_db():
     )
     _migration_astreintes_equipes(db)
     _migration_equipe_double(db)
+    _migration_equipe_heures(db)
     _migration_tech_couleur(db)
     # Jeu de données initial (uniquement si vide)
     n = db.execute("SELECT COUNT(*) AS c FROM techniciens").fetchone()["c"]
@@ -226,6 +228,14 @@ def _migration_tech_couleur(db):
     db.commit()
 
 
+def _migration_equipe_heures(db):
+    """Ajoute la colonne heures_jour à equipes si absente."""
+    cols = [r[1] for r in db.execute("PRAGMA table_info(equipes)").fetchall()]
+    if "heures_jour" not in cols:
+        db.execute("ALTER TABLE equipes ADD COLUMN heures_jour REAL NOT NULL DEFAULT 0")
+        db.commit()
+
+
 def now_tz():
     return datetime.now(TZ)
 
@@ -289,6 +299,20 @@ def heures_technicien(db, tech_id, ref=None):
         fin = parse(r["date_fin"]) if r["date_fin"] else now_tz()
         h_jour += _overlap_heures(deb, fin, jd, jf)
         h_sem += _overlap_heures(deb, fin, sd, sf)
+
+    # Heures de base (travail régulier) créditées aux membres d'équipe, Lun-Ven.
+    taux = db.execute(
+        """SELECT COALESCE(SUM(e.heures_jour), 0) AS t
+           FROM equipe_membres m JOIN equipes e ON m.equipe_id = e.id
+           WHERE m.technicien_id = ? AND e.actif = 1""",
+        (tech_id,),
+    ).fetchone()["t"]
+    if taux:
+        iso = ref_date.isoweekday()          # 1 = lundi ... 7 = dimanche
+        if iso <= 5:
+            h_jour += taux                    # jour ouvré : crédite le jour courant
+        h_sem += taux * min(iso, 5)           # semaine : jours ouvrés écoulés (Lun -> aujourd'hui)
+
     return {"jour": round(h_jour, 2), "semaine": round(h_sem, 2)}
 
 
@@ -656,23 +680,12 @@ def api_etat():
         (iso(now_tz() - timedelta(hours=12)),),
     ).fetchall()
 
-    # Astreinte du jour : gardes regroupées par équipe (titulaire + back-up)
-    par_equipe = {}
-    for g in gardes:
-        e = par_equipe.setdefault(g["equipe_id"], {
-            "equipe_nom": g["equipe_nom"], "couleur": g["equipe_couleur"],
-            "titulaire": None, "backup": None,
-        })
-        e[g["slot"]] = g["technicien_nom"]
-    astreinte = list(par_equipe.values())
-
     return jsonify({
         "maintenant": iso(now_tz()),
         "utilisateur": {"id": u["id"], "nom": u["nom"], "role": u["role"]},
         "techniciens": techs_out,
         "moi": moi,
         "depannages": [serialise_depannage(d) for d in deps],
-        "astreinte_jour": astreinte,
         "plafonds": {
             "max_jour": MAX_H_JOUR, "max_semaine": MAX_H_SEMAINE,
             "alerte_jour": ALERTE_H_JOUR, "alerte_semaine": ALERTE_H_SEMAINE,
@@ -921,7 +934,7 @@ def api_equipes_light():
     """Équipes actives + membres + option deux colonnes (pour le planning)."""
     db = get_db()
     rows = db.execute(
-        "SELECT id, nom, couleur, deux_colonnes FROM equipes WHERE actif = 1 ORDER BY nom"
+        "SELECT id, nom, couleur, deux_colonnes, heures_jour FROM equipes WHERE actif = 1 ORDER BY nom"
     ).fetchall()
     out = []
     for e in rows:
@@ -943,7 +956,7 @@ def _hex_xl(couleur):
 def _colonnes_planning(db):
     """Liste ordonnée des colonnes (equipe, slot) du planning."""
     equipes = db.execute(
-        "SELECT id, nom, couleur, deux_colonnes FROM equipes WHERE actif = 1 ORDER BY nom"
+        "SELECT id, nom, couleur, deux_colonnes, heures_jour FROM equipes WHERE actif = 1 ORDER BY nom"
     ).fetchall()
     cols = []
     for e in equipes:
@@ -1153,6 +1166,17 @@ def api_import_planning():
     db.commit()
     return jsonify({"ok": True, "importes": importes, "ignores": ignores[:20],
                     "nb_ignores": len(ignores)})
+
+
+def _heures_valide(v):
+    """Normalise les heures/jour d'une équipe : réel entre 0 et 24."""
+    try:
+        h = float(str(v).replace(",", "."))
+    except (TypeError, ValueError):
+        return 0.0
+    return round(max(0.0, min(h, 24.0)), 2)
+
+
 def _membres_equipe(db, eid):
     rows = db.execute(
         """SELECT t.id, t.nom, t.couleur FROM equipe_membres m
@@ -1168,7 +1192,7 @@ def _membres_equipe(db, eid):
 def api_equipes():
     db = get_db()
     equipes = db.execute(
-        "SELECT id, nom, couleur, deux_colonnes, actif FROM equipes ORDER BY actif DESC, nom"
+        "SELECT id, nom, couleur, deux_colonnes, heures_jour, actif FROM equipes ORDER BY actif DESC, nom"
     ).fetchall()
     out = []
     for e in equipes:
@@ -1186,10 +1210,11 @@ def api_creer_equipe():
     nom = (data.get("nom") or "").strip()
     couleur = data.get("couleur") or "#1E3A8A"
     deux = 1 if data.get("deux_colonnes") else 0
+    heures = _heures_valide(data.get("heures_jour"))
     membres = data.get("membres") or []
     if not nom:
         return jsonify({"erreur": "Le nom de l'équipe est obligatoire."}), 400
-    cur = db.execute("INSERT INTO equipes (nom, couleur, deux_colonnes) VALUES (?,?,?)", (nom, couleur, deux))
+    cur = db.execute("INSERT INTO equipes (nom, couleur, deux_colonnes, heures_jour) VALUES (?,?,?,?)", (nom, couleur, deux, heures))
     eid = cur.lastrowid
     for tid in membres:
         db.execute("INSERT OR IGNORE INTO equipe_membres (equipe_id, technicien_id) VALUES (?,?)", (eid, tid))
@@ -1209,7 +1234,8 @@ def api_modifier_equipe(eid):
         return jsonify({"erreur": "Le nom de l'équipe est obligatoire."}), 400
     couleur = data.get("couleur") or "#1E3A8A"
     deux = 1 if data.get("deux_colonnes") else 0
-    db.execute("UPDATE equipes SET nom = ?, couleur = ?, deux_colonnes = ? WHERE id = ?", (nom, couleur, deux, eid))
+    heures = _heures_valide(data.get("heures_jour"))
+    db.execute("UPDATE equipes SET nom = ?, couleur = ?, deux_colonnes = ?, heures_jour = ? WHERE id = ?", (nom, couleur, deux, heures, eid))
     if "membres" in data:
         db.execute("DELETE FROM equipe_membres WHERE equipe_id = ?", (eid,))
         for tid in (data.get("membres") or []):

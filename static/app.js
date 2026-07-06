@@ -99,27 +99,11 @@ function demarrerDashboard() {
 async function rafraichirDashboard() {
   try {
     _etat = await api("/api/etat");
-    rendreBandeau(_etat);
     rendreTechniciens(_etat);
     rendreDepannagesDispatch(_etat);
   } catch (e) { console.error(e); }
 }
 
-function rendreBandeau(etat) {
-  const el = document.getElementById("bandeau-astreinte");
-  const items = (etat.astreinte_jour || []).map((a) => {
-    const parts = [];
-    if (a.titulaire) parts.push(`${ech(a.titulaire)}`);
-    if (a.backup) parts.push(`<span class="bk">Back-up : ${ech(a.backup)}</span>`);
-    const contenu = parts.length ? parts.join(" · ") : "poste non pourvu";
-    return `<span class="puce puce-equipe" style="border-left:4px solid ${a.couleur}">
-      <b>${ech(a.equipe_nom)}</b> · ${contenu}</span>`;
-  }).join("");
-  el.innerHTML = `<div class="bandeau-astreinte">
-    <div><div class="etiq">Astreinte du jour</div>
-    <div class="noms">${items || "<span style='color:#C7D2FE;font-weight:500'>Aucune astreinte planifiée aujourd'hui</span>"}</div></div>
-  </div>`;
-}
 
 function rendreTechniciens(etat) {
   const g = document.getElementById("grille-tech");
@@ -596,9 +580,10 @@ async function chargerEquipes() {
       ? e.membres.map((m) => `<span class="membre-puce">${ech(m.nom)}</span>`).join("")
       : `<span style="color:var(--ardoise-clair);font-size:13px">Aucun technicien</span>`;
     const badge = e.deux_colonnes ? `<span class="eq-badge">Titulaire + Back-up</span>` : "";
+    const badgeH = e.heures_jour ? `<span class="eq-badge heures">${(+e.heures_jour).toString().replace('.', ',')} h/jour</span>` : "";
     return `<div class="carte-equipe" style="border-left:5px solid ${e.couleur}">
       <div class="eq-tete">
-        <div class="eq-nom">${ech(e.nom)} ${badge}</div>
+        <div class="eq-nom">${ech(e.nom)} ${badge} ${badgeH}</div>
         <div class="eq-actions">
           <button class="btn" onclick="ouvrirEditionEquipe(${e.id})">Modifier</button>
           <button class="btn danger" onclick="supprimerEquipe(${e.id}, '${ech(e.nom).replace(/'/g, "\\'")}')">Supprimer</button>
@@ -614,6 +599,7 @@ async function ouvrirNouvelleEquipe() {
   document.getElementById("equipe-titre").textContent = "Nouvelle équipe";
   document.getElementById("e-nom").value = "";
   document.getElementById("e-deux").checked = false;
+  document.getElementById("e-heures").value = "";
   _couleurChoisie = COULEURS_EQUIPE[0];
   await rendreSelecteurEquipe([]);
   ouvrir("modale-equipe");
@@ -629,6 +615,7 @@ async function ouvrirEditionEquipe(id) {
   document.getElementById("equipe-titre").textContent = "Modifier l'équipe";
   document.getElementById("e-nom").value = eq.nom;
   document.getElementById("e-deux").checked = !!eq.deux_colonnes;
+  document.getElementById("e-heures").value = eq.heures_jour ? eq.heures_jour : "";
   _couleurChoisie = eq.couleur;
   await rendreSelecteurEquipe(eq.membres.map((m) => m.id));
   ouvrir("modale-equipe");
@@ -663,6 +650,7 @@ async function enregistrerEquipe() {
   const corps = {
     nom, couleur: _couleurChoisie, membres,
     deux_colonnes: document.getElementById("e-deux").checked ? 1 : 0,
+    heures_jour: document.getElementById("e-heures").value || 0,
   };
   const url = _equipeEdit ? `/api/admin/equipe/${_equipeEdit}` : "/api/admin/equipe";
   try { await api(url, "POST", corps); fermer("modale-equipe"); chargerEquipes(); }

@@ -443,6 +443,7 @@ a { color: inherit; }
 .duree-chips .chip.actif { background: var(--socom); border-color: var(--socom); color: #fff; }
 .eq-badge { font-size: 10.5px; font-weight: 700; color: var(--depann); background: var(--depann-bg);
   padding: 2px 8px; border-radius: 6px; text-transform: uppercase; letter-spacing: .03em; vertical-align: middle; }
+.eq-badge.heures { color: #0D9488; background: #CCFBF1; }
 .case-option { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; font-weight: 400 !important; }
 .case-option input { width: 18px; height: 18px; margin-top: 1px; accent-color: var(--socom); flex-shrink: 0; }
 .bandeau-astreinte .bk { color: #C7D2FE; font-weight: 500; }
