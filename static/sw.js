@@ -4,10 +4,8 @@
    - API (/api/...) : réseau uniquement (données temps réel, jamais servies périmées)
    - navigation hors-ligne : repli sur la page /offline en cache
 */
-const CACHE = "astreinte-v1";
+const CACHE = "astreinte-v2";
 const SHELL = [
-  "/static/style.css",
-  "/static/app.js",
   "/static/icone-192.png",
   "/static/icone-512.png",
   "/static/apple-touch-icon.png",
@@ -36,7 +34,20 @@ self.addEventListener("fetch", (e) => {
     return; // laisse le navigateur gérer ; l'app affiche l'état précédent en mémoire
   }
 
-  // Ressources statiques : cache d'abord, mise à jour en tâche de fond
+  // JS / CSS : réseau d'abord (toujours la dernière version en ligne),
+  // repli sur le cache si hors-ligne. Évite de servir un ancien app.js.
+  if (url.pathname.endsWith(".js") || url.pathname.endsWith(".css")) {
+    e.respondWith(
+      fetch(req).then((r) => {
+        const copie = r.clone();
+        caches.open(CACHE).then((c) => c.put(req, copie));
+        return r;
+      }).catch(() => caches.match(req))
+    );
+    return;
+  }
+
+  // Autres ressources statiques (icônes, images) : cache d'abord
   if (url.pathname.startsWith("/static/")) {
     e.respondWith(
       caches.match(req).then((rep) => {

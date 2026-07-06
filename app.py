@@ -51,6 +51,28 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("ASTREINTE_SECRET", "change-me-en-production")
 
 
+def _asset_version():
+    """Empreinte courte du JS/CSS : change à chaque modification de contenu,
+    ce qui casse proprement le cache navigateur/PWA après un déploiement."""
+    import hashlib
+    h = hashlib.md5()
+    for fn in ("static/app.js", "static/style.css"):
+        try:
+            with open(os.path.join(BASE_DIR, fn), "rb") as f:
+                h.update(f.read())
+        except OSError:
+            pass
+    return h.hexdigest()[:8]
+
+
+ASSET_VERSION = _asset_version()
+
+
+@app.context_processor
+def _injecter_version():
+    return {"v": ASSET_VERSION}
+
+
 # --------------------------------------------------------------------------
 # Base de données
 # --------------------------------------------------------------------------

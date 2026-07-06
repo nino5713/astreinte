@@ -15,7 +15,7 @@
   <meta name="apple-mobile-web-app-title" content="Astreinte">
   <meta name="mobile-web-app-capable" content="yes">
 
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=v) }}">
 </head>
 <body>
 {% if not cache_topbar %}
@@ -48,7 +48,7 @@
     // Enregistrement du service worker (PWA)
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
-        navigator.serviceWorker.register("/sw.js").catch((e) => console.warn("SW:", e));
+        navigator.serviceWorker.register("/sw.js?v={{ v }}").catch((e) => console.warn("SW:", e));
       });
     }
 
